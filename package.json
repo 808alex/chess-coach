@@ -1,0 +1,34 @@
+{
+  "name": "chess-coach",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test:coach": "tsx tools/test-coach.ts",
+    "verify": "tsx tools/verify-content.ts",
+    "verify:quick": "tsx tools/verify-content.ts --quick",
+    "puzzles": "tsx tools/gen-puzzles.ts 300 tools/puzzles-raw.json 42 && cp tools/puzzles-raw.json src/data/puzzles.json"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "react": "^19.3.1",
+    "react-chessboard": "^5.12.4",
+    "react-dom": "^19.3.1",
+    "stockfish": "^19.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxlint": "^1.90.0",
+    "playwright-core": "^1.65.1",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.6"
+  },
+  "license": "GPL-3.0-or-later"
+}
