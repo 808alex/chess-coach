@@ -19,7 +19,8 @@
   --radius-l: 18px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   font-family: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 16px;
+  /* The whole UI scales up on large monitors (15.5px at 1440 wide, 19px at 2560). */
+  font-size: clamp(15px, 0.32vw + 11px, 19px);
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
@@ -83,7 +84,7 @@ a {
 /* ---------- app shell ---------- */
 .app {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: 13rem minmax(0, 1fr);
   min-height: 100vh;
 }
 .sidebar {
@@ -418,34 +419,163 @@ details summary {
   position: relative;
   width: 100%;
   aspect-ratio: 1;
-  border-radius: 6px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
-.board-wrap > div:first-child {
+.board {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 6px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.board.is-interactive {
+  cursor: pointer;
+}
+.board.is-dragging {
+  cursor: grabbing;
+}
+.squares {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
   border-radius: 6px;
   overflow: hidden;
 }
-.board-wrap.flash-good {
-  animation: flashGood 0.9s ease-out;
+.sq {
+  position: relative;
 }
-.board-wrap.flash-bad {
-  animation: flashBad 0.6s ease-out;
+.sq > span {
+  position: absolute;
+  pointer-events: none;
 }
-.board-wrap.shake-0 {
-  animation: shakeA 0.32s;
+.sq-hl {
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
-.board-wrap.shake-1 {
-  animation: shakeB 0.32s;
+.sq-hl.on {
+  opacity: 1;
+}
+.sq-check {
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 40, 30, 0.95) 0%, rgba(230, 40, 30, 0.5) 45%, transparent 72%);
+  animation: fadeIn 0.25s ease-out;
+}
+.sq-threat {
+  inset: 0;
+  box-shadow: inset 0 0 0 0.3em rgba(235, 75, 60, 0.9);
+  animation: fadeIn 0.2s ease-out;
+}
+.sq-user {
+  inset: 0;
+  background: rgba(235, 97, 80, 0.75);
+}
+.sq-hint {
+  inset: 0;
+  box-shadow: inset 0 0 0 0.3em rgba(129, 182, 76, 0.95);
+  animation: hintPulse 1.2s ease-in-out infinite;
+}
+.sq-over {
+  inset: 0;
+  box-shadow: inset 0 0 0 0.25em rgba(255, 255, 255, 0.7);
+}
+.sq-dot {
+  left: 35%;
+  top: 35%;
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.16);
+  animation: dotIn 0.18s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.sq-ring {
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.42em rgba(0, 0, 0, 0.16);
+  animation: dotIn 0.18s ease-out;
+}
+.coord {
+  font-weight: 800;
+  font-size: clamp(9px, 1.1vmin, 15px);
+  line-height: 1;
+  opacity: 0.95;
+}
+.coord-rank {
+  top: 4%;
+  left: 5%;
+}
+.coord-file {
+  bottom: 4%;
+  right: 6%;
+}
+.pieces {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.piece {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 12.5%;
+  height: 12.5%;
+  z-index: 2;
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.piece > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0.15em 0.1em rgba(0, 0, 0, 0.22));
+  transition: filter 0.2s;
+}
+.piece.instant {
+  transition: none;
+}
+.piece.dragging {
+  transition: none;
+  z-index: 6;
+}
+.piece.dragging > svg {
+  filter: drop-shadow(0 0.6em 0.5em rgba(0, 0, 0, 0.4));
+}
+.piece.dying {
+  z-index: 1;
+  animation: pieceOut 160ms ease-in 170ms forwards;
+}
+.piece.dying-now {
+  z-index: 1;
+  opacity: 0;
+  transition: none;
+}
+.piece.born {
+  animation: pieceIn 0.25s ease-out;
+}
+.arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 7;
+}
+.arrow {
+  opacity: 0.88;
+  animation: fadeIn 0.2s ease-out;
 }
 .square-mark {
   position: absolute;
+  font-size: clamp(11px, 1.35vmin, 20px) !important;
   width: 2.3em;
   height: 2.3em;
   border-radius: 50%;
   display: grid;
   place-items: center;
   font-weight: 800;
-  font-size: clamp(0.62rem, 1.1vw, 0.82rem);
   color: #fff;
   border: 2px solid #fff;
   pointer-events: none;
@@ -467,9 +597,16 @@ details summary {
   animation: popIn 0.25s cubic-bezier(0.3, 1.5, 0.5, 1);
 }
 .promo button {
-  font-size: 2.2rem;
-  padding: 2px 14px;
-  line-height: 1.2;
+  width: 4.2rem;
+  height: 4.2rem;
+  padding: 0.3rem;
+}
+.promo button svg {
+  width: 100%;
+  height: 100%;
+}
+.promo button.ghost {
+  width: auto;
 }
 
 /* ---------- glyphs & verdict ---------- */
@@ -644,10 +781,12 @@ details summary {
 
 /* ---------- game view ---------- */
 .game-page {
-  --side: clamp(320px, 28vw, 400px);
-  --bw: min(calc(100vh - 128px), calc(100vw - 210px - var(--side) - 100px), 860px);
+  --side: clamp(20rem, 24vw, 30rem);
+  /* Board column = as tall as the screen allows (minus the two player bars), or as wide as fits. */
+  --bw: min(calc(100vh - 7.6rem - 24px), calc(100vw - 13rem - var(--side) - 5.5rem));
   display: flex;
   justify-content: center;
+  margin-top: -14px;
 }
 .game-layout {
   display: grid;
@@ -672,9 +811,9 @@ details summary {
 .player-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 0;
-  min-height: 54px;
+  gap: 0.7rem;
+  padding: 0.45rem 0;
+  min-height: 3.4rem;
 }
 .player-card .avatar {
   border-radius: 8px;
@@ -810,8 +949,8 @@ details summary {
   border-radius: var(--radius-l);
   padding: 16px;
   box-shadow: 0 5px 0 rgba(0, 0, 0, 0.22);
-  max-height: calc(var(--bw) + 100px);
-  margin-top: 54px;
+  max-height: calc(var(--bw) + 2rem);
+  margin-top: 3.4rem;
 }
 .side-tabs {
   display: flex;
@@ -945,24 +1084,85 @@ details summary {
 .tool-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 0.45rem;
 }
-.tool-row button {
+.tool-btn,
+.nav-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 4px;
-  font-size: 0.78rem;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0.3rem 0.65rem;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #3b3936, #32302d);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 3px 8px rgba(0, 0, 0, 0.25);
+  color: #cfc9c0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.15;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
-.tool-ico {
-  font-size: 1.2rem;
-  line-height: 1.1;
+.tool-btn svg,
+.nav-btn svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.tool-btn:hover:not(:disabled),
+.nav-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #454340, #3a3835);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.tool-btn:hover:not(:disabled) svg {
+  transform: scale(1.1);
+}
+.tool-btn:active:not(:disabled),
+.nav-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.tool-btn.is-on {
+  color: var(--green-hi);
 }
 .nav-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  gap: 0.45rem;
+}
+.nav-btn {
+  padding: 0.6rem 0;
+}
+.foot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+}
+.text-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+.text-btn:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.1);
+}
+.danger-text:hover:not(:disabled) {
+  color: #ff9c8d;
+  background: rgba(229, 83, 61, 0.12);
 }
 .movelist {
   flex: 1;
@@ -1763,6 +1963,23 @@ details summary {
     opacity: 1;
   }
 }
+@keyframes pieceOut {
+  to {
+    opacity: 0;
+    transform: var(--t, none) scale(0.85);
+  }
+}
+@keyframes pieceIn {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dotIn {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+}
 @keyframes growUp {
   from {
     transform: scaleY(0);
@@ -1840,7 +2057,7 @@ details summary {
     grid-template-columns: 1fr;
   }
   .game-page {
-    --bw: min(calc(100vw - 210px - 64px), calc(100vh - 128px), 760px);
+    --bw: min(calc(100vw - 13rem - 3rem), calc(100vh - 7.6rem - 24px));
   }
   .game-layout {
     grid-template-columns: var(--bw);
@@ -1902,7 +2119,14 @@ details summary {
     padding: 18px 12px 50px;
   }
   .game-page {
-    --bw: min(calc(100vw - 24px), calc(100vh - 160px));
+    --bw: calc(100vw - 16px);
+    margin: -10px -4px 0;
+  }
+  .evalbar {
+    width: 12px;
+  }
+  .evalbar-label {
+    display: none;
   }
   .bot-card .bot-elo {
     display: none;

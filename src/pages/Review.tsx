@@ -3,6 +3,7 @@ import { Chess } from 'chess.js';
 import { Board } from '../components/Board';
 import { ClassGlyph, EvalBar, EvalGraph, MoveList, Progress } from '../components/Bits';
 import { CoachBubble } from '../components/GameBits';
+import { Icon } from '../components/Icon';
 import { TaskBoard } from '../components/TaskBoard';
 import { getAnalysisEngine, isCancel } from '../engine/browserEngine';
 import { startFenPly } from '../engine/botPlayer';
@@ -371,11 +372,19 @@ function Analysis({ loaded }: { loaded: Loaded }) {
             )}
           </div>
           <MoveList sans={sans} reports={reports} current={cur} onPick={setCur} startPly={startFenPly(g.startFen)} />
-          <div className="row">
-            <button onClick={() => setCur(-1)} aria-label="Start">⏮</button>
-            <button onClick={() => setCur(Math.max(-1, cur - 1))} aria-label="Previous">◀</button>
-            <button onClick={() => setCur(Math.min(g.ucis.length - 1, cur + 1))} aria-label="Next">▶</button>
-            <button onClick={() => setCur(g.ucis.length - 1)} aria-label="End">⏭</button>
+          <div className="nav-row">
+            <button className="nav-btn" onClick={() => setCur(-1)} aria-label="Start">
+              <Icon name="first" />
+            </button>
+            <button className="nav-btn" onClick={() => setCur(Math.max(-1, cur - 1))} aria-label="Previous">
+              <Icon name="prev" />
+            </button>
+            <button className="nav-btn" onClick={() => setCur(Math.min(g.ucis.length - 1, cur + 1))} aria-label="Next">
+              <Icon name="next" />
+            </button>
+            <button className="nav-btn" onClick={() => setCur(g.ucis.length - 1)} aria-label="End">
+              <Icon name="last" />
+            </button>
           </div>
         </aside>
       </div>

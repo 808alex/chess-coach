@@ -3,8 +3,9 @@ import { Chess } from 'chess.js';
 import { Board } from '../components/Board';
 import { EvalBar, MoveList } from '../components/Bits';
 import { BotAvatar, CoachBubble, PlayerCard, YouAvatar } from '../components/GameBits';
+import { Icon } from '../components/Icon';
 import { getAnalysisEngine, getBotEngine, isCancel } from '../engine/browserEngine';
-import { botMove, startFenPly } from '../engine/botPlayer';
+import { botMove, startFenPly, thinkTimeMs } from '../engine/botPlayer';
 import type { Analysis } from '../lib/engineTypes';
 import { judgeMove, threatReport, type MoveReport } from '../lib/coach';
 import { flip, type MoveClass } from '../lib/evalUtil';
@@ -233,6 +234,10 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
 
   const sansRef = useRef<string[]>([]);
   sansRef.current = sans;
+  const ucisRef = useRef<string[]>([]);
+  ucisRef.current = ucis;
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
   const liveFen = fens[fens.length - 1];
   const live = useMemo(() => new Chess(liveFen), [liveFen]);
   const shownPly = viewPly ?? ucis.length;
@@ -260,6 +265,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     const eng = getAnalysisEngine();
     eng.newGame();
     play('start');
+    window.scrollTo({ top: 0 });
     return () => {
       gen.current++;
       eng.cancel();
@@ -323,7 +329,8 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
         if (stale()) return;
         const v = verdictRef.current;
         const read = !cfg.coach ? 0 : v.cls === 'brilliant' ? 1800 : v.cls === 'great' ? 1300 : v.cls === 'book' ? 650 : 950;
-        const humanThink = 380 + Math.random() * 520;
+        const clockLeft = timed ? clockRef.current[live.turn()] : undefined;
+        const humanThink = thinkTimeMs(fenAtStart, mv, ply, ucisRef.current[ply - 1], clockLeft);
         await sleep(Math.max(read - (Date.now() - v.at), humanThink - (Date.now() - t0), 0));
         if (stale()) return;
         const fenBefore = fenAtStart;
@@ -639,19 +646,21 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
               )}
               {!over && !paused && (
                 <div className="tool-row">
-                  <button disabled={!userTurn || viewPly !== null} onClick={() => setThreats(threatReport(liveFen))}>
-                    <span className="tool-ico">⛨</span>Blunder check
+                  <button className="tool-btn" disabled={!userTurn || viewPly !== null} onClick={() => setThreats(threatReport(liveFen))}>
+                    <Icon name="shield" />
+                    <span>Blunder check</span>
                   </button>
-                  <button disabled={!userTurn || !curAnalysis || viewPly !== null || hintLevel >= 2} onClick={() => setHintLevel((h) => Math.min(2, h + 1))}>
-                    <span className="tool-ico">✦</span>
-                    {hintLevel === 0 ? 'Hint' : 'Show move'}
+                  <button className="tool-btn" disabled={!userTurn || !curAnalysis || viewPly !== null || hintLevel >= 2} onClick={() => setHintLevel((h) => Math.min(2, h + 1))}>
+                    <Icon name="bulb" />
+                    <span>{hintLevel === 0 ? 'Hint' : 'Show move'}</span>
                   </button>
-                  <button disabled={ucis.length === 0 || thinking || judging} onClick={takeBack}>
-                    <span className="tool-ico">↶</span>Take back
+                  <button className="tool-btn" disabled={ucis.length === 0 || judging} onClick={takeBack}>
+                    <Icon name="undo" />
+                    <span>Take back</span>
                   </button>
-                  <button onClick={() => setShowEval((s) => !s)}>
-                    <span className="tool-ico">▥</span>
-                    {showEval ? 'Hide eval' : 'Eval'}
+                  <button className={`tool-btn ${showEval ? 'is-on' : ''}`} onClick={() => setShowEval((s) => !s)}>
+                    <Icon name="eval" />
+                    <span>Eval bar</span>
                   </button>
                 </div>
               )}
@@ -664,22 +673,30 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
 
           <MoveList sans={sans} reports={cfg.coach ? reports : undefined} current={shownPly - 1} onPick={(i) => setViewPly(i + 1 === ucis.length ? null : i + 1)} startPly={startPly} />
           <div className="nav-row">
-            <button onClick={() => setViewPly(0)} aria-label="First move">⏮</button>
-            <button onClick={() => setViewPly(Math.max(0, shownPly - 1))} aria-label="Previous move">◀</button>
-            <button onClick={() => setViewPly(shownPly + 1 >= ucis.length ? null : shownPly + 1)} aria-label="Next move">▶</button>
-            <button onClick={() => setViewPly(null)} aria-label="Live position">⏭</button>
+            <button className="nav-btn" onClick={() => setViewPly(0)} aria-label="First move">
+              <Icon name="first" />
+            </button>
+            <button className="nav-btn" onClick={() => setViewPly(Math.max(0, shownPly - 1))} aria-label="Previous move">
+              <Icon name="prev" />
+            </button>
+            <button className="nav-btn" onClick={() => setViewPly(shownPly + 1 >= ucis.length ? null : shownPly + 1)} aria-label="Next move">
+              <Icon name="next" />
+            </button>
+            <button className="nav-btn" onClick={() => setViewPly(null)} aria-label="Live position">
+              <Icon name="last" />
+            </button>
           </div>
-          <div className="row wrap">
+          <div className="foot-row">
             {!over && (
               <button
-                className="danger"
+                className="text-btn danger-text"
                 onClick={() => {
                   gen.current++;
                   setResigned(true);
                   setThinking(false);
                 }}
               >
-                ⚑ Resign
+                <Icon name="flag" size="1.1em" /> Resign
               </button>
             )}
             {over && savedId && (
@@ -687,9 +704,13 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
                 Game review
               </button>
             )}
-            {over && <button onClick={onRematch}>Rematch</button>}
-            <button className="ghost" onClick={() => (over ? onExit() : go('home'))}>
-              {over ? 'New bot' : 'Leave'}
+            {over && (
+              <button className="text-btn" onClick={onRematch}>
+                <Icon name="rematch" size="1.1em" /> Rematch
+              </button>
+            )}
+            <button className="text-btn" onClick={() => (over ? onExit() : go('home'))}>
+              <Icon name="exit" size="1.1em" /> {over ? 'New bot' : 'Leave'}
             </button>
           </div>
         </aside>
