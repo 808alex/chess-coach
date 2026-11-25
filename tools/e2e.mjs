@@ -11,20 +11,20 @@ const text = async (sel) => (await p.locator(sel).first().innerText().catch(() =
 // --- Play a coached game
 await p.goto(base + '#/play');
 await p.waitForTimeout(500);
-await p.click('text=1200');
-await p.click('text=Start game');
+await p.click('.bot-card:nth-child(4)');
+await p.click('button.huge');
 await p.waitForTimeout(1500);
 await mv('game-board', 'e2', 'e4');
-await p.waitForSelector('.verdict', { timeout: 20000 });
-console.log('after e4:', await text('.verdict'));
-await p.waitForFunction(() => document.querySelector('.status-line strong')?.textContent === 'Your move', null, { timeout: 30000 });
-console.log('status:', await text('.status-line'), '| moves:', await text('.movelist'));
+await p.waitForSelector('.bubble-glyph', { timeout: 20000 });
+console.log('after e4:', await text('.bubble'));
+await p.waitForFunction(() => document.querySelectorAll('.ml-cell:not(.empty)').length >= 2 && !document.querySelector('.thinking'), null, { timeout: 30000 });
+await p.waitForTimeout(800);
+console.log('moves:', await text('.movelist'));
 // Hang the queen: Qh5 then maybe Qxf7?? Just try Qg4 which often hangs to d7 bishop / knight
 await mv('game-board', 'd1', 'g4');
 await p.waitForTimeout(500);
-await p.waitForSelector('.verdict', { timeout: 20000 });
-await p.waitForTimeout(3500);
-console.log('after Qg4:', await text('.coach-box'));
+await p.waitForTimeout(4000);
+console.log('after Qg4:', await text('.coach-area'));
 await p.screenshot({ path: '/tmp/s-play.png' });
 // blunder check button
 const bc = p.locator('button:has-text("Blunder check")');
@@ -73,7 +73,7 @@ console.log('review summary:', await text('.sum-row'));
 console.log('key moments:', await text('.key-moments'));
 await p.locator('.moment').first().click();
 await p.waitForTimeout(300);
-console.log('moment verdict:', await text('.game-side .verdict'));
+console.log('moment verdict:', await text('.game-side .bubble'));
 await p.screenshot({ path: '/tmp/s-review.png' });
 
 // --- Home after data

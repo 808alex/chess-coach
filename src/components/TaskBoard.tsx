@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Board } from './Board';
-import { Verdict } from './Bits';
+import { CoachBubble } from './GameBits';
 import { getAnalysisEngine, isCancel } from '../engine/browserEngine';
 import type { Analysis } from '../lib/engineTypes';
 import { balance, playUci, sanOf } from '../lib/chessUtil';
 import { flip, winPct } from '../lib/evalUtil';
 import { judgeMove, type MoveReport } from '../lib/coach';
+import { play } from '../lib/sound';
+import { confettiFrom } from '../lib/confetti';
 
 export type Task = {
   fen: string;
@@ -37,6 +39,12 @@ export function TaskBoard({ task, prompt, explain, onDone, onFirstMistake, id = 
   const [onScript, setOnScript] = useState(true);
   const [mistakes, setMistakes] = useState(0);
   const [hintOn, setHintOn] = useState(false);
+  const [flash, setFlash] = useState<'good' | 'bad' | null>(null);
+  const boardEl = useRef<HTMLDivElement>(null);
+  const doFlash = (f: 'good' | 'bad') => {
+    setFlash(f);
+    setTimeout(() => alive.current && setFlash(null), 900);
+  };
   const cache = useRef(new Map<string, Promise<Analysis>>());
   const alive = useRef(true);
   const solver = new Chess(task.fen).turn();
@@ -72,6 +80,13 @@ export function TaskBoard({ task, prompt, explain, onDone, onFirstMistake, id = 
   }, [task.fen]);
 
   function finish(solved: boolean, text: string) {
+    if (solved) {
+      setTimeout(() => {
+        play('correct');
+        doFlash('good');
+        if (mistakes === 0) confettiFrom(boardEl.current, 60);
+      }, 250);
+    }
     setState(solved ? 'solved' : 'shown');
     setFeedback({ text });
     onDone?.({ solved, first: solved && mistakes === 0 });
@@ -162,6 +177,10 @@ export function TaskBoard({ task, prompt, explain, onDone, onFirstMistake, id = 
       }
       // Wrong: explain why using the coach.
       const report = judgeMove(before.fen(), uci, a, b, { ply: 20 });
+      setTimeout(() => {
+        play('wrong');
+        doFlash('bad');
+      }, 200);
       if (mistakes === 0) onFirstMistake?.();
       setMistakes((x) => x + 1);
       setFeedback({ text: 'Not quite.', report });
@@ -210,8 +229,9 @@ export function TaskBoard({ task, prompt, explain, onDone, onFirstMistake, id = 
 
   return (
     <div className="taskboard">
-      <div className="task-board">
+      <div className="task-board" ref={boardEl}>
         <Board
+          flash={flash}
           fen={fen}
           orientation={solver === 'w' ? 'white' : 'black'}
           onMove={(u) => {
@@ -234,7 +254,7 @@ export function TaskBoard({ task, prompt, explain, onDone, onFirstMistake, id = 
             {state === 'solved' && <p className="ok-line">✓ Solved</p>}
             {state === 'wrong' && feedback.report ? (
               <>
-                <Verdict r={feedback.report} />
+                <CoachBubble report={feedback.report} />
               </>
             ) : (
               <p>{feedback.text}</p>

@@ -71,7 +71,10 @@ export function Puzzles({ arg }: { arg?: string }) {
           <span className="muted small">puzzle rating</span>
         </div>
         <div>
-          <span className="stat-num">{stats.streak}</span>
+          <span className={`stat-num ${stats.streak >= 3 ? 'fire' : ''}`}>
+            {stats.streak}
+            {stats.streak >= 3 ? ' 🔥' : ''}
+          </span>
           <span className="muted small">streak (best {stats.bestStreak})</span>
         </div>
         <div>

@@ -325,3 +325,24 @@ export function phaseOf(chess: Chess): 'opening' | 'middlegame' | 'endgame' {
   if (nonPawn <= 26) return 'endgame';
   return 'middlegame';
 }
+
+/** Pieces each side has captured since `startFen`, and White's material lead. */
+export function capturedSince(startFen: string, fen: string) {
+  const count = (f: string) => {
+    const c: Record<string, number> = {};
+    for (const ch of f.split(' ')[0]) if (/[pnbrqPNBRQ]/.test(ch)) c[ch] = (c[ch] ?? 0) + 1;
+    return c;
+  };
+  const a = count(startFen);
+  const b = count(fen);
+  const byWhite: PieceSymbol[] = [];
+  const byBlack: PieceSymbol[] = [];
+  for (const t of ['q', 'r', 'b', 'n', 'p'] as PieceSymbol[]) {
+    for (let i = 0; i < Math.max(0, (a[t] ?? 0) - (b[t] ?? 0)); i++) byWhite.push(t); // black pieces gone
+    const T = t.toUpperCase();
+    for (let i = 0; i < Math.max(0, (a[T] ?? 0) - (b[T] ?? 0)); i++) byBlack.push(t);
+  }
+  const mat = (cnt: Record<string, number>, upper: boolean) =>
+    (['p', 'n', 'b', 'r', 'q'] as PieceSymbol[]).reduce((s, t) => s + (cnt[upper ? t.toUpperCase() : t] ?? 0) * VALUE[t], 0);
+  return { byWhite, byBlack, whiteLead: mat(b, true) - mat(b, false) };
+}

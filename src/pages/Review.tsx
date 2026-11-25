@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Board } from '../components/Board';
-import { ClassGlyph, EvalBar, EvalGraph, MoveList, Progress, Verdict } from '../components/Bits';
+import { ClassGlyph, EvalBar, EvalGraph, MoveList, Progress } from '../components/Bits';
+import { CoachBubble } from '../components/GameBits';
 import { TaskBoard } from '../components/TaskBoard';
 import { getAnalysisEngine, isCancel } from '../engine/browserEngine';
 import { startFenPly } from '../engine/botPlayer';
@@ -332,7 +333,7 @@ function Analysis({ loaded }: { loaded: Loaded }) {
         <aside className="game-side">
           {r ? (
             <>
-              <Verdict r={r} perspective={r.color === g.userColor ? 'you' : 'neutral'} />
+              <CoachBubble report={r.color === g.userColor ? r : { ...r, headline: r.headline.replace(/\byour\b/gi, 'their') }} />
               {r.color === g.userColor && ['blunder', 'mistake', 'miss', 'inaccuracy'].includes(r.cls) && (
                 <div className="row wrap">
                   <button className="primary" onClick={() => setRetry(r)}>
@@ -345,7 +346,7 @@ function Analysis({ loaded }: { loaded: Loaded }) {
               )}
             </>
           ) : (
-            <p className="muted">Click a move, the graph, or use ← → to step through. Coloured dots on the graph are the big moments.</p>
+            <CoachBubble text="Step through with ← →, click a move, or click the graph. The coloured dots are the big moments." />
           )}
           <div className="key-moments">
             <div className="row between">

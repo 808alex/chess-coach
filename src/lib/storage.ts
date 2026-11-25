@@ -30,8 +30,21 @@ export type Settings = {
   depth: number; // coach/review analysis depth
   showEval: boolean;
   lastElo: number;
+  sound: boolean;
+  volume: number; // 0..1
+  boardTheme: string;
+  timeControl: string; // id from TIME_CONTROLS
 };
-const DEFAULT_SETTINGS: Settings = { chesscomUser: '', depth: 13, showEval: true, lastElo: 1200 };
+const DEFAULT_SETTINGS: Settings = {
+  chesscomUser: '',
+  depth: 13,
+  showEval: true,
+  lastElo: 1200,
+  sound: true,
+  volume: 0.7,
+  boardTheme: 'green',
+  timeControl: 'none',
+};
 export const getSettings = () => load('settings', DEFAULT_SETTINGS);
 export const saveSettings = (s: Settings) => save('settings', s);
 

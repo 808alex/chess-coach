@@ -44,6 +44,9 @@ export function Learn({ arg }: { arg?: string }) {
               const c = lessonCompletion(l, prog);
               return (
                 <button key={l.id} className="lesson-item" onClick={() => go('learn', l.id)}>
+                  <span className="li-icon" aria-hidden>
+                    {{ Thinking: '♔', Tactics: '♘', Middlegame: '♖', Endgame: '♙' }[l.group]}
+                  </span>
                   <span className="li-title">{l.title}</span>
                   <span className="li-summary">{l.summary}</span>
                   {c.total > 0 && (

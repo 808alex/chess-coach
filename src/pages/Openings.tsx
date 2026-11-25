@@ -4,6 +4,8 @@ import { REPERTOIRE, type Chapter, type RepLine } from '../data/repertoire';
 import { Board } from '../components/Board';
 import { getOpeningStats, recordOpening } from '../lib/storage';
 import { go, requestPlay } from '../lib/nav';
+import { play } from '../lib/sound';
+import { confetti } from '../lib/confetti';
 
 function fenAt(moves: string[], n: number) {
   const c = new Chess();
@@ -38,6 +40,9 @@ export function Openings({ arg }: { arg?: string }) {
               const s = c.lines.reduce((a, l) => ({ ok: a.ok + (stats[l.id]?.ok ?? 0), fail: a.fail + (stats[l.id]?.fail ?? 0) }), { ok: 0, fail: 0 });
               return (
                 <button key={c.id} className="lesson-item" onClick={() => go('openings', c.id)}>
+                  <span className="li-icon" aria-hidden>
+                    {side === 'w' ? '♔' : '♚'}
+                  </span>
                   <span className="li-title">{c.title}</span>
                   <span className="li-summary">{c.intro}</span>
                   <span className="small muted">
@@ -161,6 +166,10 @@ function Drill({ chapter }: { chapter: Chapter }) {
       if (ended) {
         setFinished(ended.l);
         recordOpening(ended.l.id, !mistake);
+        setTimeout(() => {
+          play(mistake ? 'notify' : 'correct');
+          if (!mistake) confetti({ count: 70 });
+        }, 300);
       }
       return;
     }
@@ -195,6 +204,7 @@ function Drill({ chapter }: { chapter: Chapter }) {
         text: `Not in your repertoire. Play ${expected.join(' or ')}.${noteLine ? ' ' + noteLine.l.notes[played.length] : ''}`,
       });
       setMistake(true);
+      play('wrong');
       return false;
     }
     const note = ok[0].l.notes[played.length];

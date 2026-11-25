@@ -1,24 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Board } from '../components/Board';
-import { EvalBar, MoveList, Verdict } from '../components/Bits';
+import { EvalBar, MoveList } from '../components/Bits';
+import { BotAvatar, CoachBubble, PlayerCard, YouAvatar } from '../components/GameBits';
 import { getAnalysisEngine, getBotEngine, isCancel } from '../engine/browserEngine';
 import { botMove, startFenPly } from '../engine/botPlayer';
 import type { Analysis } from '../lib/engineTypes';
 import { judgeMove, threatReport, type MoveReport } from '../lib/coach';
 import { CLASS_INFO, flip, type MoveClass } from '../lib/evalUtil';
 import { eloLabel } from '../lib/bot';
-import { playUci, validateFen } from '../lib/chessUtil';
+import { capturedSince, playUci, validateFen } from '../lib/chessUtil';
 import { getSettings, saveGame, saveSettings } from '../lib/storage';
-import { requestReview, takePlayRequest } from '../lib/nav';
+import { go, requestReview, takePlayRequest } from '../lib/nav';
 import { summarize } from '../lib/review';
 import { bookInfo, openingName } from '../data/openingBook';
 import { REPERTOIRE } from '../data/repertoire';
+import { BOTS, TIME_CONTROLS, botFor } from '../lib/themes';
+import { play } from '../lib/sound';
+import { confetti, confettiFrom } from '../lib/confetti';
 
 const START = new Chess().fen();
 const SCREENSHOT_FEN = 'r1bqkb1r/2pp1ppp/p1n2n2/1p2p3/4P3/1BN2N2/PPPP1PPP/R1BQK2R b KQkq - 1 6';
 
-type Setup = { fen: string; elo: number; color: 'w' | 'b' | 'random'; coach: boolean; label: string };
+type Setup = { fen: string; elo: number; color: 'w' | 'b' | 'random'; coach: boolean; label: string; tc: string };
 
 function presetPositions() {
   const out: { label: string; fen: string; color: 'w' | 'b' }[] = [
@@ -37,17 +41,18 @@ function presetPositions() {
 export function Play() {
   const settings = getSettings();
   const [req] = useState(() => takePlayRequest());
-  const [setup, setSetup] = useState<Setup>(() => {
-    return {
-      fen: req?.fen ?? START,
-      elo: req?.elo ?? settings.lastElo,
-      color: req?.userColor ?? 'w',
-      coach: req?.coach ?? true,
-      label: req?.label ?? 'Standard start',
-    };
-  });
+  const [setup, setSetup] = useState<Setup>(() => ({
+    fen: req?.fen ?? START,
+    elo: req?.elo ?? settings.lastElo,
+    color: req?.userColor ?? 'w',
+    coach: req?.coach ?? true,
+    label: req?.label ?? 'Standard start',
+    tc: settings.timeControl,
+  }));
   const [game, setGame] = useState<GameConfig | null>(() =>
-    req ? { id: Date.now(), startFen: req.fen, elo: req.elo ?? settings.lastElo, userColor: req.userColor ?? 'w', coach: req.coach ?? true, label: req.label ?? 'Custom position' } : null,
+    req
+      ? { id: Date.now(), startFen: req.fen, elo: req.elo ?? settings.lastElo, userColor: req.userColor ?? 'w', coach: req.coach ?? true, label: req.label ?? 'Custom position', tc: 'none' }
+      : null,
   );
   const [customFen, setCustomFen] = useState('');
   const [fenError, setFenError] = useState('');
@@ -57,67 +62,83 @@ export function Play() {
 
   const start = () => {
     const userColor = setup.color === 'random' ? (Math.random() < 0.5 ? 'w' : 'b') : setup.color;
-    saveSettings({ ...getSettings(), lastElo: setup.elo });
-    setGame({ id: Date.now(), startFen: setup.fen, elo: setup.elo, userColor, coach: setup.coach, label: setup.label });
+    saveSettings({ ...getSettings(), lastElo: setup.elo, timeControl: setup.tc });
+    setGame({ id: Date.now(), startFen: setup.fen, elo: setup.elo, userColor, coach: setup.coach, label: setup.label, tc: setup.tc });
   };
+  const bot = botFor(setup.elo);
 
   return (
-    <div className="page">
-      <h1>Play</h1>
-      <p className="lede">Play the computer at any strength. With the coach on, every move gets graded and explained as you play.</p>
-      <div className="setup">
-        <section className="panel">
-          <h2>Opponent strength</h2>
-          <div className="elo-readout">
-            <span className="elo-num">{setup.elo}</span>
-            <span className="muted">{eloLabel(setup.elo)}</span>
-          </div>
-          <input
-            type="range"
-            min={100}
-            max={3000}
-            step={50}
-            value={setup.elo}
-            onChange={(e) => setSetup({ ...setup, elo: Number(e.target.value) })}
-            aria-label="Opponent Elo"
-          />
-          <div className="chips">
-            {[400, 800, 1000, 1200, 1400, 1600, 2000, 3000].map((e) => (
-              <button key={e} className={`chip ${setup.elo === e ? 'on' : ''}`} onClick={() => setSetup({ ...setup, elo: e })}>
-                {e}
+    <div className="page play-setup">
+      <header className="page-head">
+        <h1>Play</h1>
+        <p className="lede">Pick an opponent. With the coach on, every move gets graded and explained while you play.</p>
+      </header>
+      <div className="setup-grid">
+        <section className="setup-bots">
+          <h2>Opponent</h2>
+          <div className="bot-grid">
+            {BOTS.map((b, i) => (
+              <button
+                key={b.id}
+                className={`bot-card ${setup.elo === b.elo ? 'on' : ''}`}
+                style={{ ['--bot' as string]: b.color, animationDelay: `${i * 35}ms` }}
+                onClick={() => setSetup({ ...setup, elo: b.elo })}
+              >
+                <BotAvatar color={b.color} size={48} label={b.name} />
+                <span className="bot-name">{b.name}</span>
+                <span className="bot-elo">{b.elo}</span>
               </button>
             ))}
           </div>
-          <p className="muted small">
-            Below 1320 the bot imitates human mistakes (it misses things and sometimes hangs pieces). From 1320 up it is Stockfish’s own strength limiter.
-          </p>
+          <div className="bot-detail" key={bot.name + setup.elo}>
+            <BotAvatar color={bot.color} size={64} label={bot.name} />
+            <div>
+              <div className="bot-detail-name">
+                {bot.name} <span className="muted">· {eloLabel(setup.elo)}</span>
+              </div>
+              <p className="muted">{bot.blurb || 'Your own strength setting.'}</p>
+            </div>
+            <div className="elo-big">{setup.elo}</div>
+          </div>
+          <label className="slider-label" htmlFor="elo">
+            Fine-tune strength: 100 to 3000
+          </label>
+          <input id="elo" type="range" min={100} max={3000} step={50} value={setup.elo} onChange={(e) => setSetup({ ...setup, elo: Number(e.target.value) })} />
+          <p className="muted small">Below 1320 the bot plays like a human and makes human mistakes. From 1320 up it uses Stockfish’s own strength limiter.</p>
         </section>
-        <section className="panel">
-          <h2>Mode</h2>
-          <div className="seg">
-            <button className={setup.coach ? 'on' : ''} onClick={() => setSetup({ ...setup, coach: true })}>
-              Coach
+
+        <section className="setup-side">
+          <div className="mode-cards">
+            <button className={`mode-card ${setup.coach ? 'on' : ''}`} onClick={() => setSetup({ ...setup, coach: true })}>
+              <span className="mode-title">Coach</span>
+              <span className="muted small">Grades, explanations, hints and takebacks as you play.</span>
             </button>
-            <button className={!setup.coach ? 'on' : ''} onClick={() => setSetup({ ...setup, coach: false })}>
-              Match
+            <button className={`mode-card ${!setup.coach ? 'on' : ''}`} onClick={() => setSetup({ ...setup, coach: false })}>
+              <span className="mode-title">Match</span>
+              <span className="muted small">No help. Review the game afterwards.</span>
             </button>
           </div>
-          <p className="muted small">
-            {setup.coach
-              ? 'Live grades and explanations, hints, a blunder check button, and a chance to take back mistakes.'
-              : 'No help during the game. Review it afterwards.'}
-          </p>
-          <h2>Your colour</h2>
-          <div className="seg">
-            {(['w', 'b', 'random'] as const).map((c) => (
-              <button key={c} className={setup.color === c ? 'on' : ''} onClick={() => setSetup({ ...setup, color: c })}>
+
+          <h3>Time</h3>
+          <div className="pill-row">
+            {TIME_CONTROLS.map((t) => (
+              <button key={t.id} className={`pill ${setup.tc === t.id ? 'on' : ''}`} onClick={() => setSetup({ ...setup, tc: t.id })}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <h3>Play as</h3>
+          <div className="pill-row">
+            {(['w', 'random', 'b'] as const).map((c) => (
+              <button key={c} className={`pill color-pill ${setup.color === c ? 'on' : ''}`} onClick={() => setSetup({ ...setup, color: c })}>
+                <span className="color-ico">{c === 'w' ? '♔' : c === 'b' ? '♚' : '⚄'}</span>
                 {c === 'w' ? 'White' : c === 'b' ? 'Black' : 'Random'}
               </button>
             ))}
           </div>
-        </section>
-        <section className="panel">
-          <h2>Starting position</h2>
+
+          <h3>Starting position</h3>
           <select
             value={presets.find((p) => p.fen === setup.fen)?.label ?? 'custom'}
             onChange={(e) => {
@@ -131,54 +152,63 @@ export function Play() {
             ))}
             {!presets.some((p) => p.fen === setup.fen) && <option value="custom">{setup.label}</option>}
           </select>
-          <p className="muted small">Repertoire positions let you practise the middlegame plans from the Openings section.</p>
-          <label className="small" htmlFor="fen">
-            Or paste a FEN
-          </label>
-          <div className="row">
-            <input id="fen" value={customFen} onChange={(e) => setCustomFen(e.target.value)} placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" />
-            <button
-              onClick={() => {
-                const bad = validateFen(customFen.trim());
-                if (bad) return setFenError(bad);
-                setFenError('');
-                setSetup({ ...setup, fen: customFen.trim(), label: 'Custom position' });
-              }}
-            >
-              Use
-            </button>
-          </div>
-          {fenError && <p className="error small">{fenError}</p>}
-          <div className="mini-board">
-            <Board fen={setup.fen} interactive={false} orientation={setup.color === 'b' ? 'black' : 'white'} id="setup-preview" />
-          </div>
+          <details className="fen-details">
+            <summary>Paste a FEN</summary>
+            <div className="row">
+              <input value={customFen} onChange={(e) => setCustomFen(e.target.value)} placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" aria-label="FEN" />
+              <button
+                onClick={() => {
+                  const bad = validateFen(customFen.trim());
+                  if (bad) return setFenError(bad);
+                  setFenError('');
+                  setSetup({ ...setup, fen: customFen.trim(), label: 'Custom position' });
+                }}
+              >
+                Use
+              </button>
+            </div>
+            {fenError && <p className="error small">{fenError}</p>}
+          </details>
+          <button className="primary huge setup-go" onClick={start}>
+            Play {bot.name}
+          </button>
+          {setup.fen !== START && (
+            <div className="setup-preview">
+              <Board fen={setup.fen} interactive={false} orientation={setup.color === 'b' ? 'black' : 'white'} id="setup-preview" sound={false} />
+            </div>
+          )}
         </section>
       </div>
-      <button className="primary big" onClick={start}>
-        Start game
-      </button>
     </div>
   );
 }
 
-type GameConfig = { id: number; startFen: string; elo: number; userColor: 'w' | 'b'; coach: boolean; label: string };
+type GameConfig = { id: number; startFen: string; elo: number; userColor: 'w' | 'b'; coach: boolean; label: string; tc: string };
 
 function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => void; onRematch: () => void }) {
   const settings = getSettings();
+  const tc = TIME_CONTROLS.find((t) => t.id === cfg.tc) ?? TIME_CONTROLS[0];
+  const timed = tc.base > 0;
+  const bot = botFor(cfg.elo);
   const [ucis, setUcis] = useState<string[]>([]);
   const [reports, setReports] = useState<(MoveReport | undefined)[]>([]);
-  const [viewPly, setViewPly] = useState<number | null>(null); // null = live
+  const [viewPly, setViewPly] = useState<number | null>(null);
   const [thinking, setThinking] = useState(false);
   const [judging, setJudging] = useState(false);
   const [paused, setPaused] = useState<MoveReport | null>(null);
   const [hintLevel, setHintLevel] = useState(0);
   const [threats, setThreats] = useState<{ lines: string[]; squares: string[] } | null>(null);
   const [resigned, setResigned] = useState(false);
+  const [flagged, setFlagged] = useState<'w' | 'b' | null>(null);
   const [showEval, setShowEval] = useState(settings.showEval && cfg.coach);
   const [oppNote, setOppNote] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [modal, setModal] = useState(false);
+  const [clock, setClock] = useState({ w: tc.base * 1000, b: tc.base * 1000, since: Date.now() });
+  const [, setTick] = useState(0);
   const analyses = useRef(new Map<string, Promise<Analysis>>());
   const gen = useRef(0);
+  const boardRef = useRef<HTMLDivElement>(null);
   const [curAnalysis, setCurAnalysis] = useState<Analysis | null>(null);
 
   const fens = useMemo(() => {
@@ -196,12 +226,13 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
   }, [ucis, cfg.startFen]);
 
   const liveFen = fens[fens.length - 1];
-  const live = new Chess(liveFen);
+  const live = useMemo(() => new Chess(liveFen), [liveFen]);
   const shownPly = viewPly ?? ucis.length;
   const shownFen = fens[shownPly];
   const userTurn = live.turn() === cfg.userColor;
-  const over = live.isGameOver() || resigned;
+  const over = live.isGameOver() || resigned || !!flagged;
   const startPly = startFenPly(cfg.startFen);
+  const clockRunning = timed && !over && !paused && ucis.length > 0;
 
   function analyse(fen: string) {
     let p = analyses.current.get(fen);
@@ -213,20 +244,48 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     return p;
   }
 
-  // Engine cleanup when leaving the game.
   useEffect(() => {
     const eng = getAnalysisEngine();
     eng.newGame();
+    play('start');
     return () => {
       gen.current++;
       eng.cancel();
+      getBotEngine().cancel();
     };
   }, []);
 
-  // Keep an analysis of the live position (for eval bar, hints, grading).
+  // Clock: charge the time used to the side that just moved, add increment.
   useEffect(() => {
-    if (over && !live.isGameOver()) return;
-    if (live.isGameOver()) return;
+    if (!timed || ucis.length === 0) return;
+    const mover = live.turn() === 'w' ? 'b' : 'w';
+    setClock((c) => ({ ...c, [mover]: c[mover] - (Date.now() - c.since) + tc.inc * 1000, since: Date.now() }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ucis.length]);
+  useEffect(() => {
+    if (!timed || over) return;
+    const iv = setInterval(() => {
+      if (!clockRunning) {
+        setClock((c) => ({ ...c, since: Date.now() }));
+        return;
+      }
+      const side = live.turn();
+      const left = clock[side] - (Date.now() - clock.since);
+      if (left <= 0) {
+        gen.current++;
+        setClock((c) => ({ ...c, [side]: 0 }));
+        setFlagged(side);
+        setThinking(false);
+      }
+      setTick((t) => t + 1);
+    }, 100);
+    return () => clearInterval(iv);
+  }, [timed, over, clockRunning, live, clock]);
+  const timeLeft = (side: 'w' | 'b') => (clockRunning && live.turn() === side ? clock[side] - (Date.now() - clock.since) : clock[side]);
+
+  // Keep an analysis of the live position.
+  useEffect(() => {
+    if (over) return;
     const g = gen.current;
     if (cfg.coach || userTurn) {
       analyse(liveFen)
@@ -248,28 +307,30 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
         await new Promise((r) => setTimeout(r, wait));
         if (g !== gen.current) return;
         const fenBefore = liveFen;
+        const ply = fens.length - 1;
         setUcis((u) => [...u, mv]);
         setThinking(false);
         if (cfg.coach) {
-          // Grade the opponent's move too, so the coach can say "there's something to punish".
           const a = await analyse(fenBefore);
           const after = new Chess(fenBefore);
           playUci(after, mv);
           if (after.isGameOver()) return;
           const b = await analyse(after.fen());
           if (g !== gen.current) return;
-          const r = judgeMove(fenBefore, mv, a, b, { ply: fens.length - 1 });
+          const r = judgeMove(fenBefore, mv, a, b, { ply });
           setReports((rs) => {
             const copy = [...rs];
-            copy[fens.length - 1] = r;
+            copy[ply] = r;
             return copy;
           });
-          if (['mistake', 'blunder', 'miss'].includes(r.cls))
+          if (['mistake', 'blunder', 'miss'].includes(r.cls)) {
+            play('notify');
             setOppNote(
               r.tags.includes('hung-piece') || r.tags.includes('removed-defender') || r.tags.includes('ignored-threat')
-                ? 'Your opponent just made a mistake — something is loose. Run your checks, captures and threats.'
-                : 'Your opponent just made a mistake. Look for a tactic before you play a normal move.',
+                ? `${bot.name} just slipped — something is loose. Check captures first.`
+                : `${bot.name} just made a mistake. Look for a tactic before you play a normal move.`,
             );
+          }
         }
       })
       .catch((e) => {
@@ -279,10 +340,10 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveFen, userTurn, over, paused, judging]);
 
-  // Save the game when it ends.
+  // Game over: save, sound, confetti, modal.
   useEffect(() => {
     if (!over || savedId) return;
-    const res = resultFor(live, cfg.userColor, resigned);
+    const res = resultFor(live, cfg.userColor, resigned, flagged);
     const id = `g${cfg.id}`;
     const mine = reports.filter((r): r is MoveReport => !!r && r.color === cfg.userColor);
     saveGame({
@@ -291,13 +352,18 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
       source: cfg.coach ? 'coach' : 'match',
       userColor: cfg.userColor,
       result: res,
-      opponent: `Bot ${cfg.elo}`,
+      opponent: `${bot.name} (${cfg.elo})`,
       startFen: cfg.startFen,
       ucis,
       opening: cfg.startFen === START ? openingName(sans) : cfg.label,
       summary: cfg.coach && mine.length ? summarize(mine, cfg.userColor) : undefined,
     });
     setSavedId(id);
+    setTimeout(() => {
+      play(res === 'win' ? 'win' : res === 'loss' ? 'lose' : 'draw');
+      if (res === 'win') confetti({ count: 200 });
+      setModal(true);
+    }, 500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [over]);
 
@@ -326,6 +392,11 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
         copy[ply] = r;
         return copy;
       });
+      if (r.cls === 'brilliant') {
+        play('brilliant');
+        confettiFrom(boardRef.current, 90);
+      } else if (r.cls === 'great') play('correct');
+      else if (r.cls === 'blunder') play('blunder');
       if ((['mistake', 'blunder', 'miss'] as MoveClass[]).includes(r.cls) && !c.isGameOver()) setPaused(r);
     } catch (e) {
       if (!isCancel(e)) console.error(e);
@@ -339,10 +410,9 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     gen.current++;
     getAnalysisEngine().cancel();
     getBotEngine().cancel();
-    // Go back to the last position where it was the user's move (before their last move).
-    let n = ucis.length;
     const startTurn = new Chess(cfg.startFen).turn();
     const turnAt = (k: number) => ((k % 2 === 0) === (startTurn === 'w') ? 'w' : 'b');
+    let n = ucis.length;
     if (n === 0) return;
     n--;
     while (n > 0 && turnAt(n) !== cfg.userColor) n--;
@@ -352,185 +422,259 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     setPaused(null);
     setThinking(false);
     setJudging(false);
-    setResigned(false);
     setHintLevel(0);
     setThreats(null);
     setOppNote(null);
     setViewPly(null);
+    setClock((c) => ({ ...c, since: Date.now() }));
   }
 
-  const lastReport = (() => {
-    const i = shownPly - 1;
-    if (i < 0) return undefined;
-    return reports[i];
-  })();
+  const lastReport = shownPly > 0 ? reports[shownPly - 1] : undefined;
   const myLastReport = (() => {
     for (let i = ucis.length - 1; i >= 0; i--) if (reports[i]?.color === cfg.userColor) return reports[i];
     return undefined;
   })();
 
-  const evalScore = curAnalysis && viewPly === null && curAnalysis.lines[0]
-    ? live.turn() === 'w'
-      ? curAnalysis.lines[0].score
-      : flip(curAnalysis.lines[0].score)
-    : lastReport?.evalAfterWhite ?? null;
+  const evalScore =
+    curAnalysis && viewPly === null && curAnalysis.lines[0]
+      ? live.turn() === 'w'
+        ? curAnalysis.lines[0].score
+        : flip(curAnalysis.lines[0].score)
+      : lastReport?.evalAfterWhite ?? null;
 
   const arrows = (() => {
     if (viewPly !== null) return lastReport?.arrows ?? [];
     if (paused) return paused.arrows;
     if (hintLevel >= 2 && curAnalysis?.lines[0]) {
       const m = curAnalysis.lines[0].move;
-      return [{ from: m.slice(0, 2), to: m.slice(2, 4), color: 'rgba(80,180,80,.85)' }];
+      return [{ from: m.slice(0, 2), to: m.slice(2, 4), color: 'rgba(129,182,76,.9)' }];
     }
     return [];
   })();
-  const highlights = viewPly === null
-    ? [...(threats?.squares ?? []), ...(hintLevel === 1 && curAnalysis?.lines[0] ? [curAnalysis.lines[0].move.slice(0, 2)] : [])]
-    : [];
 
-  const status = over
-    ? resultText(live, cfg.userColor, resigned)
-    : paused
-      ? 'Coach paused the game'
-      : judging
-        ? 'Coach is looking at your move…'
-        : thinking
-          ? `Bot ${cfg.elo} is thinking…`
-          : userTurn
-            ? 'Your move'
-            : '…';
-
+  const cap = capturedSince(cfg.startFen, shownFen);
+  const userIsWhite = cfg.userColor === 'w';
+  const oppColor = userIsWhite ? 'b' : 'w';
+  const res = over ? resultFor(live, cfg.userColor, resigned, flagged) : null;
   const shownReport = viewPly !== null ? lastReport : myLastReport;
+  const mineSummary = useMemo(() => {
+    const mine = reports.filter((r): r is MoveReport => !!r && r.color === cfg.userColor);
+    return mine.length ? summarize(mine, cfg.userColor) : null;
+  }, [reports, cfg.userColor]);
+
+  const coachText = over
+    ? resultText(live, cfg.userColor, resigned, flagged)
+    : judging
+      ? 'Let me look at that…'
+      : shownReport
+        ? undefined
+        : ucis.length === 0
+          ? userTurn
+            ? 'Your move. I’ll grade every move and tell you why.'
+            : `${bot.name} is opening the game.`
+          : 'Your move.';
 
   return (
-    <div className="game">
-      <div className="game-board">
-        <div className="player-tag">
-          <span className={`dot ${cfg.userColor === 'w' ? 'black' : 'white'}`} /> Bot {cfg.elo} <span className="muted">· {eloLabel(cfg.elo)}</span>
-        </div>
-        <div className="board-row">
-          {showEval && <EvalBar score={evalScore} orientation={cfg.userColor === 'w' ? 'white' : 'black'} />}
-          <Board
-            fen={shownFen}
-            orientation={cfg.userColor === 'w' ? 'white' : 'black'}
-            onMove={(u) => {
-              void onUserMove(u);
-              return true;
-            }}
-            interactive={!over && userTurn && !thinking && !judging && !paused && viewPly === null}
-            lastMove={shownPly > 0 ? ucis[shownPly - 1] : undefined}
-            arrows={arrows}
-            highlights={highlights}
-            markSquare={lastReport && cfg.coach ? { square: lastReport.uci.slice(2, 4), color: classColor(lastReport.cls), symbol: classSymbol(lastReport.cls) } : undefined}
-            id="game-board"
+    <div className="game-page">
+      <div className="game-layout">
+        <div className="board-col" ref={boardRef}>
+          <PlayerCard
+            avatar={<BotAvatar color={bot.color} size={40} label={bot.name} />}
+            name={bot.name}
+            rating={String(cfg.elo)}
+            captured={oppColor === 'w' ? cap.byWhite : cap.byBlack}
+            lead={oppColor === 'w' ? cap.whiteLead : -cap.whiteLead}
+            capturedColor={userIsWhite ? 'w' : 'b'}
+            clockMs={timed ? timeLeft(oppColor) : undefined}
+            clockActive={clockRunning && live.turn() === oppColor}
+            thinking={thinking}
+            isTurn={!over && !userTurn}
+          />
+          <div className="board-row">
+            {showEval && <EvalBar score={evalScore} orientation={userIsWhite ? 'white' : 'black'} />}
+            <div className="board-holder">
+              <Board
+                fen={shownFen}
+                orientation={userIsWhite ? 'white' : 'black'}
+                onMove={(u) => {
+                  void onUserMove(u);
+                  return true;
+                }}
+                interactive={!over && userTurn && !thinking && !judging && !paused && viewPly === null}
+                lastMove={shownPly > 0 ? ucis[shownPly - 1] : undefined}
+                arrows={arrows}
+                highlights={viewPly === null ? threats?.squares ?? [] : []}
+                hintSquares={viewPly === null && hintLevel === 1 && curAnalysis?.lines[0] ? [curAnalysis.lines[0].move.slice(0, 2)] : []}
+                markSquare={lastReport && cfg.coach ? { square: lastReport.uci.slice(2, 4), color: CLASS_INFO[lastReport.cls].color, symbol: CLASS_INFO[lastReport.cls].symbol } : undefined}
+                id="game-board"
+              />
+              {modal && res && (
+                <div className="gameover" role="dialog" aria-label="Game over">
+                  <div className={`go-card go-${res}`}>
+                    <div className="go-title">{res === 'win' ? 'You won!' : res === 'loss' ? `${bot.name} won` : res === 'draw' ? 'Draw' : 'Game over'}</div>
+                    <div className="go-reason">{resultText(live, cfg.userColor, resigned, flagged)}</div>
+                    <div className="go-avatars">
+                      <YouAvatar size={56} />
+                      <span className="go-vs">vs</span>
+                      <BotAvatar color={bot.color} size={56} label={bot.name} />
+                    </div>
+                    {mineSummary && (
+                      <div className="go-stats">
+                        <div>
+                          <b>{mineSummary.accuracy}%</b>
+                          <span>accuracy</span>
+                        </div>
+                        <div>
+                          <b>{mineSummary.counts.blunder ?? 0}</b>
+                          <span>blunders</span>
+                        </div>
+                        <div>
+                          <b>{mineSummary.counts.mistake ?? 0}</b>
+                          <span>mistakes</span>
+                        </div>
+                        <div>
+                          <b>{(mineSummary.counts.best ?? 0) + (mineSummary.counts.great ?? 0) + (mineSummary.counts.brilliant ?? 0)}</b>
+                          <span>best moves</span>
+                        </div>
+                      </div>
+                    )}
+                    {savedId && (
+                      <button className="primary huge" onClick={() => requestReview({ gameId: savedId })}>
+                        Game review
+                      </button>
+                    )}
+                    <div className="row">
+                      <button onClick={onRematch}>Rematch</button>
+                      <button onClick={onExit}>New bot</button>
+                      <button className="ghost" onClick={() => setModal(false)}>
+                        Look at the board
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <PlayerCard
+            avatar={<YouAvatar size={40} />}
+            name="You"
+            captured={cfg.userColor === 'w' ? cap.byWhite : cap.byBlack}
+            lead={cfg.userColor === 'w' ? cap.whiteLead : -cap.whiteLead}
+            capturedColor={oppColor}
+            clockMs={timed ? timeLeft(cfg.userColor) : undefined}
+            clockActive={clockRunning && live.turn() === cfg.userColor}
+            isTurn={!over && userTurn}
           />
         </div>
-        <div className="player-tag">
-          <span className={`dot ${cfg.userColor === 'w' ? 'white' : 'black'}`} /> You
-        </div>
-      </div>
 
-      <aside className="game-side">
-        <div className="status-line">
-          <strong>{status}</strong>
-          <span className="muted small">{cfg.coach ? 'Coach mode' : 'Match'} · {cfg.label}</span>
-        </div>
-
-        {cfg.coach && (
-          <div className="coach-box">
-            {paused ? (
-              <>
-                <Verdict r={paused} />
-                <div className="row">
-                  <button className="primary" onClick={takeBack}>
-                    Take back and try again
-                  </button>
-                  <button onClick={() => setPaused(null)}>Play on</button>
-                </div>
-              </>
-            ) : shownReport ? (
-              <Verdict r={shownReport} perspective={shownReport.color === cfg.userColor ? 'you' : 'neutral'} />
-            ) : (
-              <p className="muted">Make a move. The coach will grade it and tell you why.</p>
-            )}
-            {oppNote && !paused && viewPly === null && <p className="opp-note">{oppNote}</p>}
-            {threats && viewPly === null && (
-              <div className="threats">
-                <h3>Blunder check</h3>
-                <ul>
-                  {threats.lines.map((l, i) => (
-                    <li key={i}>{l}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {!over && !paused && (
-              <div className="row wrap">
-                <button disabled={!userTurn || viewPly !== null} onClick={() => setThreats(threatReport(liveFen))}>
-                  Blunder check
-                </button>
-                <button disabled={!userTurn || !curAnalysis || viewPly !== null} onClick={() => setHintLevel((h) => Math.min(2, h + 1))}>
-                  {hintLevel === 0 ? 'Hint' : hintLevel === 1 ? 'Show the move' : 'Hint shown'}
-                </button>
-                <button disabled={ucis.length === 0 || thinking || judging} onClick={takeBack}>
-                  Take back
-                </button>
-                <button onClick={() => setShowEval((s) => !s)}>{showEval ? 'Hide eval' : 'Show eval'}</button>
-              </div>
-            )}
-            {hintLevel === 1 && <p className="muted small">The highlighted piece is the one to move.</p>}
+        <aside className="side-panel">
+          <div className="side-tabs">
+            <span className="side-title">{cfg.coach ? 'Coach' : 'Match'}</span>
+            <span className="muted small">{cfg.label}</span>
           </div>
-        )}
 
-        <MoveList sans={sans} reports={cfg.coach ? reports : undefined} current={shownPly - 1} onPick={(i) => setViewPly(i + 1 === ucis.length ? null : i + 1)} startPly={startPly} />
-        <div className="row">
-          <button onClick={() => setViewPly(0)} aria-label="First move">⏮</button>
-          <button onClick={() => setViewPly(Math.max(0, shownPly - 1))} aria-label="Previous move">◀</button>
-          <button onClick={() => setViewPly(shownPly + 1 >= ucis.length ? null : shownPly + 1)} aria-label="Next move">▶</button>
-          <button onClick={() => setViewPly(null)} aria-label="Live position">⏭</button>
-        </div>
+          {cfg.coach ? (
+            <div className="coach-area">
+              {paused && !over ? (
+                <CoachBubble report={paused}>
+                  <div className="row wrap bubble-actions">
+                    <button className="primary" onClick={takeBack}>
+                      Take back
+                    </button>
+                    <button onClick={() => setPaused(null)}>Play on anyway</button>
+                  </div>
+                </CoachBubble>
+              ) : shownReport && !judging && !over ? (
+                <CoachBubble report={shownReport} />
+              ) : (
+                <CoachBubble text={coachText} />
+              )}
+              {oppNote && !paused && viewPly === null && <div className="opp-note">{oppNote}</div>}
+              {threats && viewPly === null && (
+                <div className="threats">
+                  <h3>Blunder check</h3>
+                  <ul>
+                    {threats.lines.map((l, i) => (
+                      <li key={i}>{l}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!over && !paused && (
+                <div className="tool-row">
+                  <button disabled={!userTurn || viewPly !== null} onClick={() => setThreats(threatReport(liveFen))}>
+                    <span className="tool-ico">⛨</span>Blunder check
+                  </button>
+                  <button disabled={!userTurn || !curAnalysis || viewPly !== null || hintLevel >= 2} onClick={() => setHintLevel((h) => Math.min(2, h + 1))}>
+                    <span className="tool-ico">✦</span>
+                    {hintLevel === 0 ? 'Hint' : 'Show move'}
+                  </button>
+                  <button disabled={ucis.length === 0 || thinking || judging} onClick={takeBack}>
+                    <span className="tool-ico">↶</span>Take back
+                  </button>
+                  <button onClick={() => setShowEval((s) => !s)}>
+                    <span className="tool-ico">▥</span>
+                    {showEval ? 'Hide eval' : 'Eval'}
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="coach-area">
+              <p className="muted">{over ? resultText(live, cfg.userColor, resigned, flagged) : thinking ? `${bot.name} is thinking…` : userTurn ? 'Your move.' : ''}</p>
+            </div>
+          )}
 
-        <div className="row wrap">
-          {!over && (
-            <button
-              className="danger"
-              onClick={() => {
-                gen.current++;
-                setResigned(true);
-                setThinking(false);
-              }}
-            >
-              Resign
+          <MoveList sans={sans} reports={cfg.coach ? reports : undefined} current={shownPly - 1} onPick={(i) => setViewPly(i + 1 === ucis.length ? null : i + 1)} startPly={startPly} />
+          <div className="nav-row">
+            <button onClick={() => setViewPly(0)} aria-label="First move">⏮</button>
+            <button onClick={() => setViewPly(Math.max(0, shownPly - 1))} aria-label="Previous move">◀</button>
+            <button onClick={() => setViewPly(shownPly + 1 >= ucis.length ? null : shownPly + 1)} aria-label="Next move">▶</button>
+            <button onClick={() => setViewPly(null)} aria-label="Live position">⏭</button>
+          </div>
+          <div className="row wrap">
+            {!over && (
+              <button
+                className="danger"
+                onClick={() => {
+                  gen.current++;
+                  setResigned(true);
+                  setThinking(false);
+                }}
+              >
+                ⚑ Resign
+              </button>
+            )}
+            {over && savedId && (
+              <button className="primary" onClick={() => requestReview({ gameId: savedId })}>
+                Game review
+              </button>
+            )}
+            {over && <button onClick={onRematch}>Rematch</button>}
+            <button className="ghost" onClick={() => (over ? onExit() : go('home'))}>
+              {over ? 'New bot' : 'Leave'}
             </button>
-          )}
-          {over && savedId && (
-            <button className="primary" onClick={() => requestReview({ gameId: savedId })}>
-              Review this game
-            </button>
-          )}
-          {over && <button onClick={onRematch}>Rematch</button>}
-          <button onClick={onExit}>New setup</button>
-        </div>
-      </aside>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
 
-function resultFor(c: Chess, me: 'w' | 'b', resigned: boolean): 'win' | 'loss' | 'draw' | 'unfinished' {
+function resultFor(c: Chess, me: 'w' | 'b', resigned: boolean, flagged: 'w' | 'b' | null): 'win' | 'loss' | 'draw' | 'unfinished' {
   if (resigned) return 'loss';
+  if (flagged) return flagged === me ? 'loss' : 'win';
   if (c.isCheckmate()) return c.turn() === me ? 'loss' : 'win';
   if (c.isDraw() || c.isStalemate()) return 'draw';
   return 'unfinished';
 }
-function resultText(c: Chess, me: 'w' | 'b', resigned: boolean) {
+function resultText(c: Chess, me: 'w' | 'b', resigned: boolean, flagged: 'w' | 'b' | null) {
   if (resigned) return 'You resigned.';
-  if (c.isCheckmate()) return c.turn() === me ? 'Checkmate — you lost.' : 'Checkmate — you won!';
+  if (flagged) return flagged === me ? 'You ran out of time.' : 'Your opponent ran out of time.';
+  if (c.isCheckmate()) return c.turn() === me ? 'Checkmate. Let’s review where it went wrong.' : 'Checkmate. Nicely done!';
   if (c.isStalemate()) return 'Stalemate — draw.';
   if (c.isThreefoldRepetition()) return 'Draw by repetition.';
   if (c.isInsufficientMaterial()) return 'Draw — insufficient material.';
   if (c.isDraw()) return 'Draw.';
   return '';
 }
-
-const classColor = (c: MoveClass) => CLASS_INFO[c].color;
-const classSymbol = (c: MoveClass) => CLASS_INFO[c].symbol;
