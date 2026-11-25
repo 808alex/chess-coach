@@ -391,6 +391,31 @@ function ArrowLayer({ arrows, toXY }: { arrows: { from: string; to: string; colo
         const y0 = p0.y + 0.5;
         const x1 = p1.x + 0.5;
         const y1 = p1.y + 0.5;
+        const pt = (px: number, py: number) => `${px.toFixed(3)},${py.toFixed(3)}`;
+        const w = 0.08;
+        const hw = 0.28;
+        const adx = Math.abs(x1 - x0);
+        const ady = Math.abs(y1 - y0);
+        if ((adx === 1 && ady === 2) || (adx === 2 && ady === 1)) {
+          // Knight move: two squares along the long side, then one square across, like the knight actually goes.
+          const cx = ady === 2 ? x0 : x1;
+          const cy = ady === 2 ? y1 : y0;
+          const u1x = Math.sign(cx - x0);
+          const u1y = Math.sign(cy - y0);
+          const u2x = Math.sign(x1 - cx);
+          const u2y = Math.sign(y1 - cy);
+          const sx = x0 + u1x * 0.22;
+          const sy = y0 + u1y * 0.22;
+          const ex = x1 - u2x * 0.4;
+          const ey = y1 - u2y * 0.4;
+          const head = ['M' + pt(ex - u2y * hw, ey + u2x * hw), 'L' + pt(x1 - u2x * 0.06, y1 - u2y * 0.06), 'L' + pt(ex + u2y * hw, ey - u2x * hw), 'Z'].join(' ');
+          return (
+            <g key={i} className="arrow" fill={a.color} stroke={a.color}>
+              <path d={`M${pt(sx, sy)} L${pt(cx, cy)} L${pt(ex, ey)}`} fill="none" strokeWidth={w * 2} strokeLinejoin="miter" strokeLinecap="butt" />
+              <path d={head} stroke="none" />
+            </g>
+          );
+        }
         const len = Math.hypot(x1 - x0, y1 - y0) || 1;
         const ux = (x1 - x0) / len;
         const uy = (y1 - y0) / len;
@@ -398,9 +423,6 @@ function ArrowLayer({ arrows, toXY }: { arrows: { from: string; to: string; colo
         const sy = y0 + uy * 0.22;
         const ex = x1 - ux * 0.4;
         const ey = y1 - uy * 0.4;
-        const w = 0.08;
-        const hw = 0.28;
-        const pt = (px: number, py: number) => `${px.toFixed(3)},${py.toFixed(3)}`;
         const d = [
           'M' + pt(sx - uy * w, sy + ux * w),
           'L' + pt(ex - uy * w, ey + ux * w),
