@@ -322,7 +322,9 @@ export const Board = memo(function Board({
       const r = flipped ? y : 7 - y;
       const sq = `${FILES[f]}${r + 1}`;
       const light = (f + r) % 2 === 1;
-      const style: CSSProperties = { background: light ? theme.light : theme.dark };
+      // Night mode only tones down the light squares; dark squares keep their colour.
+      const lightColor = settings.night ? `color-mix(in srgb, ${theme.light} 74%, #000)` : theme.light;
+      const style: CSSProperties = { background: light ? lightColor : theme.dark };
       const lm = lastMove && (lastMove.slice(0, 2) === sq || lastMove.slice(2, 4) === sq);
       const target = legal.find((m) => m.to === sq);
       squares.push(

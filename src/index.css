@@ -2362,22 +2362,16 @@ kbd {
 }
 
 /* ---------- night mode ----------
-   For a dark room: near-black surfaces, softer text, no glow, a dimmed and desaturated board,
-   and a warmer, lower-contrast speech bubble. */
+   For a dark room: near-black surfaces, and only the bright whites are toned down
+   (text, white pieces, light squares, the speech bubble). Colours stay as they are. */
 html[data-night] {
   --bg: #050506;
   --bg-2: #0b0b0c;
-  --panel: #101011;
-  --panel-2: #171718;
-  --panel-3: #1f1f20;
-  --line: #222224;
-  --text: #b9b4ac;
-  --muted: #6f6b65;
-  --green: #5f8a3a;
-  --green-hi: #6c9a44;
-  --green-d: #3d5a24;
-  --gold: #b8943a;
-  --red: #a8463a;
+  --panel: #111112;
+  --panel-2: #19191a;
+  --panel-3: #222223;
+  --line: #262628;
+  --text: #cfc9c0;
 }
 html[data-night] body {
   background: #050506;
@@ -2386,60 +2380,52 @@ html[data-night] .sidebar {
   background: #050506;
   border-right-color: #111;
 }
-html[data-night] .squares {
-  filter: brightness(0.58) saturate(0.7);
-}
-html[data-night] .piece > svg {
-  filter: brightness(0.78) drop-shadow(0 0.15em 0.1em rgba(0, 0, 0, 0.3));
+html[data-night] .piece[data-piece^='w'] > svg {
+  filter: brightness(0.8) drop-shadow(0 0.15em 0.1em rgba(0, 0, 0, 0.3));
 }
 html[data-night] .board {
   box-shadow: 0 0 0 1px #000;
 }
 html[data-night] .bubble {
   background: #1c1b19;
-  color: #c4bfb7;
+  color: #cfc9c0;
   box-shadow: none;
 }
 html[data-night] .bubble::before {
   border-right-color: #1c1b19;
 }
 html[data-night] .bubble-details {
-  color: #8f8a83;
+  color: #9a948b;
+}
+html[data-night] .bubble-actions button:not(.primary) {
+  background: #2a2927;
+  color: #cfc9c0;
 }
 html[data-night] .clock.active {
-  background: #8f8a83;
-  color: #050506;
+  background: #bdb7ae;
 }
 html[data-night] .evalbar-white {
-  background: #8f8a83;
+  background: #bdb7ae;
 }
 html[data-night] .evalbar {
   background: #1a1a1b;
 }
-html[data-night] button,
-html[data-night] .tool-btn,
-html[data-night] .nav-btn {
-  box-shadow: none;
+html[data-night] .md strong,
+html[data-night] .player-card.turn .pc-name,
+html[data-night] .cap-w .cap-piece {
+  color: #cfc9c0;
+}
+html[data-night] .hero-tag {
+  background: #1c1b19;
+}
+html[data-night] .eg-white {
+  fill: #bdb7ae;
 }
 html[data-night] .tool-btn,
 html[data-night] .nav-btn {
-  background: #121213;
-  border-color: #1d1d1e;
-  color: #8f8a83;
+  background: #151516;
+  border-color: #1f1f20;
 }
-html[data-night] button.primary {
-  text-shadow: none;
-  color: #e3dfd8;
-}
-html[data-night] .brand-mark,
-html[data-night] .square-mark,
-html[data-night] .glyph,
-html[data-night] .bubble-glyph,
-html[data-night] .medal,
-html[data-night] .avatar {
-  filter: brightness(0.7) saturate(0.8);
-}
-html[data-night] .hero-board,
 html[data-night] .stat-card,
 html[data-night] .panel,
 html[data-night] .setup-bots,
@@ -2452,5 +2438,5 @@ html[data-night] .trophy {
 }
 html[data-night] .toast {
   background: #121213;
-  box-shadow: 0 0 0 1px #2a2516;
+  box-shadow: 0 0 0 1px #3a3220;
 }
