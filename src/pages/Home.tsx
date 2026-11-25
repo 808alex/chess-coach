@@ -3,8 +3,10 @@ import { Chess } from 'chess.js';
 import { Board } from '../components/Board';
 import { CLASS_INFO, type MoveClass } from '../lib/evalUtil';
 import { botFor, BOARD_THEMES } from '../lib/themes';
+import { useSettings } from '../lib/useSettings';
 import { play } from '../lib/sound';
-import { getGames, getLessonProgress, getPuzzleStats, getSettings, saveSettings, resetAll } from '../lib/storage';
+import { currentStreak, getGames, getLessonProgress, getPuzzleStats, getSettings, getUnlocked, saveSettings, resetAll } from '../lib/storage';
+import { ACHIEVEMENTS } from '../lib/achievements';
 import { TAG_INFO, type Tag } from '../lib/coach';
 import { LESSONS, LESSON_BY_ID } from '../data/lessons';
 import { lessonCompletion } from './Learn';
@@ -230,6 +232,13 @@ export function Home() {
               <span className="muted small">Openings</span>
               <span>Drill your Ruy Lopez</span>
             </button>
+            <button className="keep-item" onClick={() => go('trophies')}>
+              <span className="keep-ico">♚</span>
+              <span className="muted small">Trophies · {currentStreak()} day streak</span>
+              <span>
+                {Object.keys(getUnlocked()).length} of {ACHIEVEMENTS.length} unlocked
+              </span>
+            </button>
             <button className="keep-item" onClick={() => go('play')}>
               <span className="keep-ico">♘</span>
               <span className="muted small">Play</span>
@@ -243,13 +252,11 @@ export function Home() {
 }
 
 export function Settings() {
-  const [s, setS] = useState(getSettings());
+  const s = useSettings();
   const [saved, setSaved] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const update = (p: Partial<typeof s>) => {
-    const n = { ...s, ...p };
-    setS(n);
-    saveSettings(n);
+    saveSettings({ ...getSettings(), ...p });
     setSaved(true);
   };
   return (
@@ -273,6 +280,46 @@ export function Settings() {
         <div className="settings-preview">
           <Board fen="r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4" interactive={false} lastMove="g8f6" sound={false} id="settings-preview" />
         </div>
+      </section>
+      <section className="panel">
+        <h2>Feel</h2>
+        <label>Piece speed</label>
+        <div className="pill-row">
+          {(
+            [
+              ['fast', 'Fast'],
+              ['normal', 'Smooth'],
+              ['relaxed', 'Relaxed'],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={v} className={`pill ${s.animSpeed === v ? 'on' : ''}`} onClick={() => update({ animSpeed: v })}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <label>How long the bot waits so you can read the coach</label>
+        <div className="pill-row">
+          {(
+            [
+              ['quick', 'Quick'],
+              ['normal', 'Normal'],
+              ['relaxed', 'Relaxed'],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={v} className={`pill ${s.coachPace === v ? 'on' : ''}`} onClick={() => update({ coachPace: v })}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={s.premoves} onChange={(e) => update({ premoves: e.target.checked })} /> Premoves (queue a move while the bot thinks)
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={s.haptics} onChange={(e) => update({ haptics: e.target.checked })} /> Vibrate on phones (moves, captures, checks)
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={s.night} onChange={(e) => update({ night: e.target.checked })} /> Night mode (extra dark, dimmed board, for late nights)
+        </label>
       </section>
       <section className="panel">
         <h2>Sound</h2>

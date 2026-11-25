@@ -478,6 +478,11 @@ details summary {
   box-shadow: inset 0 0 0 0.3em rgba(129, 182, 76, 0.95);
   animation: hintPulse 1.2s ease-in-out infinite;
 }
+.sq-pre {
+  inset: 0;
+  background: rgba(214, 79, 64, 0.55);
+  animation: fadeIn 0.15s ease-out;
+}
 .sq-over {
   inset: 0;
   box-shadow: inset 0 0 0 0.25em rgba(255, 255, 255, 0.7);
@@ -523,7 +528,7 @@ details summary {
   width: 12.5%;
   height: 12.5%;
   z-index: 2;
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--anim, 280ms) cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 .piece > svg {
@@ -545,7 +550,7 @@ details summary {
 }
 .piece.dying {
   z-index: 1;
-  animation: pieceOut 160ms ease-in 170ms forwards;
+  animation: pieceOut calc(var(--anim, 280ms) * 0.55) ease-in calc(var(--anim, 280ms) * 0.6) forwards;
 }
 .piece.dying-now {
   z-index: 1;
@@ -1129,7 +1134,8 @@ details summary {
 }
 .nav-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
   gap: 0.45rem;
 }
 .nav-btn {
@@ -2153,4 +2159,298 @@ details summary {
   .hero-board {
     transform: none;
   }
+}
+
+/* ---------- streaks, toggles, shortcuts ---------- */
+.sidebar-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.streak-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.streak-pill.on {
+  color: #ffb547;
+}
+.streak-pill.on svg {
+  animation: flicker 2.4s ease-in-out infinite;
+}
+.streak-pill b {
+  font-size: 1.05rem;
+  color: var(--text);
+}
+.side-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+.side-tabs {
+  align-items: center;
+}
+.side-label {
+  flex: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.keys-btn {
+  padding: 0.35rem 0.5rem;
+}
+.keys-panel {
+  background: var(--bg-2);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+  animation: bubbleIn 0.25s ease-out;
+}
+.keys-row {
+  display: grid;
+  grid-template-columns: 7.5em 1fr;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.9rem;
+}
+kbd {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.8rem;
+  background: var(--panel-3);
+  border-radius: 6px;
+  padding: 2px 8px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  justify-self: start;
+}
+
+/* ---------- toasts & trophies ---------- */
+.toasts {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 200;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  padding: 14px 20px 14px 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #3a352b, #2b2926);
+  box-shadow: 0 0 0 1px rgba(245, 197, 66, 0.35), 0 18px 40px rgba(0, 0, 0, 0.5);
+  animation: toastIn 4.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  max-width: 360px;
+}
+.toast > span {
+  display: flex;
+  flex-direction: column;
+}
+.toast b {
+  font-size: 1.1rem;
+}
+.toast-kicker {
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+.toast .medal {
+  animation: medalSpin 0.9s cubic-bezier(0.3, 1.4, 0.5, 1) 0.15s both;
+}
+.trophies-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.streak-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border-radius: var(--radius-l);
+  padding: 14px 20px;
+  color: #ffb547;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.22);
+}
+.streak-card div {
+  display: flex;
+  flex-direction: column;
+}
+.streak-card b {
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--text);
+}
+.trophy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.trophy {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  background: var(--panel);
+  border-radius: var(--radius-m);
+  padding: 14px;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
+  animation: cardIn 0.4s ease-out both;
+  opacity: 0.75;
+}
+.trophy.on {
+  opacity: 1;
+}
+.trophy .medal {
+  flex: none;
+  transition: transform 0.3s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.trophy.on:hover .medal {
+  transform: rotate(-12deg) scale(1.08);
+}
+.trophy-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.trophy-date {
+  color: var(--gold);
+}
+.trophy-prog {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+@keyframes toastIn {
+  0% {
+    opacity: 0;
+    transform: translateY(30px) scale(0.92);
+  }
+  8%,
+  88% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+@keyframes medalSpin {
+  from {
+    transform: rotateY(180deg) scale(0.4);
+    opacity: 0;
+  }
+}
+@keyframes flicker {
+  50% {
+    transform: scale(1.12) rotate(-4deg);
+  }
+}
+
+/* ---------- night mode ----------
+   For a dark room: near-black surfaces, softer text, no glow, a dimmed and desaturated board,
+   and a warmer, lower-contrast speech bubble. */
+html[data-night] {
+  --bg: #050506;
+  --bg-2: #0b0b0c;
+  --panel: #101011;
+  --panel-2: #171718;
+  --panel-3: #1f1f20;
+  --line: #222224;
+  --text: #b9b4ac;
+  --muted: #6f6b65;
+  --green: #5f8a3a;
+  --green-hi: #6c9a44;
+  --green-d: #3d5a24;
+  --gold: #b8943a;
+  --red: #a8463a;
+}
+html[data-night] body {
+  background: #050506;
+}
+html[data-night] .sidebar {
+  background: #050506;
+  border-right-color: #111;
+}
+html[data-night] .squares {
+  filter: brightness(0.58) saturate(0.7);
+}
+html[data-night] .piece > svg {
+  filter: brightness(0.78) drop-shadow(0 0.15em 0.1em rgba(0, 0, 0, 0.3));
+}
+html[data-night] .board {
+  box-shadow: 0 0 0 1px #000;
+}
+html[data-night] .bubble {
+  background: #1c1b19;
+  color: #c4bfb7;
+  box-shadow: none;
+}
+html[data-night] .bubble::before {
+  border-right-color: #1c1b19;
+}
+html[data-night] .bubble-details {
+  color: #8f8a83;
+}
+html[data-night] .clock.active {
+  background: #8f8a83;
+  color: #050506;
+}
+html[data-night] .evalbar-white {
+  background: #8f8a83;
+}
+html[data-night] .evalbar {
+  background: #1a1a1b;
+}
+html[data-night] button,
+html[data-night] .tool-btn,
+html[data-night] .nav-btn {
+  box-shadow: none;
+}
+html[data-night] .tool-btn,
+html[data-night] .nav-btn {
+  background: #121213;
+  border-color: #1d1d1e;
+  color: #8f8a83;
+}
+html[data-night] button.primary {
+  text-shadow: none;
+  color: #e3dfd8;
+}
+html[data-night] .brand-mark,
+html[data-night] .square-mark,
+html[data-night] .glyph,
+html[data-night] .bubble-glyph,
+html[data-night] .medal,
+html[data-night] .avatar {
+  filter: brightness(0.7) saturate(0.8);
+}
+html[data-night] .hero-board,
+html[data-night] .stat-card,
+html[data-night] .panel,
+html[data-night] .setup-bots,
+html[data-night] .setup-side,
+html[data-night] .side-panel,
+html[data-night] .exercise,
+html[data-night] .lesson-item,
+html[data-night] .trophy {
+  box-shadow: none;
+}
+html[data-night] .toast {
+  background: #121213;
+  box-shadow: 0 0 0 1px #2a2516;
 }

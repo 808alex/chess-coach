@@ -137,7 +137,30 @@ export type SoundName =
   | 'blunder'
   | 'tick';
 
+// Phone vibration patterns (ms). Ignored on devices without a vibration motor.
+const BUZZ: Partial<Record<SoundName, number | number[]>> = {
+  move: 8,
+  capture: 16,
+  castle: [8, 50, 8],
+  check: [12, 40, 12],
+  promote: [10, 30, 10, 30, 10],
+  illegal: [25, 35, 25],
+  wrong: [30, 40, 30],
+  correct: 12,
+  brilliant: [10, 30, 10, 30, 20],
+  blunder: 45,
+  win: [20, 60, 20, 60, 40],
+  lose: 60,
+};
+
 export function play(name: SoundName, override?: { ctx: BaseAudioContext; volume: number }) {
+  if (!override) {
+    try {
+      if (getSettings().haptics && BUZZ[name] && 'vibrate' in navigator) navigator.vibrate(BUZZ[name]!);
+    } catch {
+      /* vibration not allowed */
+    }
+  }
   const v = override ? override.volume : vol();
   if (!v) return;
   const c = (override?.ctx ?? ac()) as AudioContext | null;

@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSPr
 import { defaultPieces } from 'react-chessboard';
 import { Chess, type Square } from 'chess.js';
 import type { Arrow } from '../lib/coach';
-import { getSettings } from '../lib/storage';
+import { useSettings, ANIM_MS } from '../lib/useSettings';
 import { themeById } from '../lib/themes';
 import { moveSound, play } from '../lib/sound';
 import { playUci } from '../lib/chessUtil';
@@ -23,12 +23,13 @@ type Props = {
   id?: string;
   sound?: boolean;
   flash?: 'good' | 'bad' | null;
+  /** Premoves: while it's not your turn, you may queue one move for `color`. */
+  premove?: { color: 'w' | 'b'; queued: string | null; onQueue: (uci: string | null) => void };
 };
 
 type PieceItem = { id: number; type: string; sq: string; dying?: boolean; instant?: boolean; born?: boolean };
 
 const FILES = 'abcdefgh';
-const ANIM = 280; // ms — piece glide
 let nextId = 1;
 
 function parseFen(fen: string): Map<string, string> {
@@ -105,8 +106,11 @@ export const Board = memo(function Board({
   id = 'board',
   sound = true,
   flash = null,
+  premove,
 }: Props) {
-  const theme = themeById(getSettings().boardTheme);
+  const settings = useSettings();
+  const theme = themeById(settings.boardTheme);
+  const anim = ANIM_MS[settings.animSpeed] ?? 280;
   const chess = useMemo(() => {
     try {
       return new Chess(fen);
@@ -114,6 +118,22 @@ export const Board = memo(function Board({
       return new Chess();
     }
   }, [fen]);
+  // Premove mode: not our turn, but we can queue a move for our colour.
+  const preMode = !!premove && settings.premoves && !interactive && chess.turn() !== premove.color && !chess.isGameOver();
+  const canAct = interactive || preMode;
+  const myColor = preMode ? premove!.color : chess.turn();
+  const preChess = useMemo(() => {
+    if (!preMode) return null;
+    const parts = fen.split(' ');
+    parts[1] = premove!.color;
+    parts[3] = '-';
+    try {
+      return new Chess(parts.join(' '), { skipValidation: true });
+    } catch {
+      return null;
+    }
+  }, [preMode, fen, premove]);
+  const moveSource = preMode ? preChess : chess;
   const [pieces, setPieces] = useState<PieceItem[]>(() => diffPieces([], fen, undefined, null));
   const [selected, setSelected] = useState<string | null>(null);
   const [overSq, setOverSq] = useState<string | null>(null);
@@ -156,10 +176,10 @@ export const Board = memo(function Board({
     if (!pieces.some((p) => p.dying || p.born || p.instant)) return;
     const t = setTimeout(
       () => setPieces((ps) => ps.filter((p) => !p.dying).map((p) => (p.born || p.instant ? { ...p, born: false, instant: false } : p))),
-      ANIM + 120,
+      anim + 120,
     );
     return () => clearTimeout(t);
-  }, [pieces]);
+  }, [pieces, anim]);
 
   const toXY = (sq: string) => {
     const f = sq.charCodeAt(0) - 97;
@@ -178,10 +198,20 @@ export const Board = memo(function Board({
   const ownAt = (sq: string | null) => {
     if (!sq) return false;
     const p = chess.get(sq as Square);
-    return !!p && p.color === chess.turn();
+    return !!p && p.color === myColor;
   };
 
   function attempt(from: string, to: string, byDrop: boolean): boolean {
+    if (preMode && preChess && premove) {
+      if (from === to) return false;
+      const m = preChess.moves({ verbose: true }).find((x) => x.from === from && x.to === to);
+      if (m) {
+        premove.onQueue(from + to + (m.promotion ? 'q' : ''));
+        if (sound) play('tick');
+      }
+      setSelected(null);
+      return false; // the piece goes home; the queued move is shown as highlighted squares
+    }
     if (!interactive || !onMove || from === to) return false;
     const moves = chess.moves({ verbose: true }).filter((m) => m.from === from && m.to === to);
     if (!moves.length) {
@@ -208,12 +238,17 @@ export const Board = memo(function Board({
     if (!sq) return;
     if (e.button === 2) {
       rightFrom.current = sq;
+      if (premove?.queued) premove.onQueue(null);
       return;
     }
     if (e.button !== 0) return;
     setUserArrows([]);
     setUserMarks([]);
-    if (!interactive) return;
+    if (!canAct) return;
+    if (preMode && premove?.queued && !ownAt(sq) && !selected) {
+      premove.onQueue(null);
+      return;
+    }
     if (ownAt(sq)) {
       const piece = pieces.find((p) => p.sq === sq && !p.dying);
       if (!piece) return;
@@ -275,8 +310,8 @@ export const Board = memo(function Board({
 
   // ---------- squares ----------
   const legal = useMemo(
-    () => (selected && interactive ? chess.moves({ square: selected as Square, verbose: true }) : []),
-    [selected, interactive, chess],
+    () => (selected && canAct && moveSource ? moveSource.moves({ square: selected as Square, verbose: true }) : []),
+    [selected, canAct, moveSource],
   );
   const checkSq = chess.inCheck() ? chess.findPiece({ type: 'k', color: chess.turn() })[0] : null;
 
@@ -297,6 +332,7 @@ export const Board = memo(function Board({
           {highlights.includes(sq) && <span className="sq-threat" />}
           {userMarks.includes(sq) && <span className="sq-user" />}
           {hintSquares.includes(sq) && <span className="sq-hint" />}
+          {premove?.queued && (premove.queued.slice(0, 2) === sq || premove.queued.slice(2, 4) === sq) && <span className="sq-pre" />}
           {overSq === sq && dragId !== null && <span className="sq-over" />}
           {target && <span className={target.captured ? 'sq-ring' : 'sq-dot'} />}
           {x === 0 && (
@@ -320,7 +356,8 @@ export const Board = memo(function Board({
       <div
         ref={boardRef}
         id={`${id}-board`}
-        className={`board ${interactive ? 'is-interactive' : ''} ${dragId !== null ? 'is-dragging' : ''}`}
+        className={`board ${canAct ? 'is-interactive' : ''} ${dragId !== null ? 'is-dragging' : ''}`}
+        style={{ ['--anim' as string]: `${anim}ms` }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -337,7 +374,7 @@ export const Board = memo(function Board({
             else if (p.instant) cls.push('instant');
             if (p.born) cls.push('born');
             if (p.id === dragId) cls.push('dragging');
-            if (interactive && !p.dying && ownAt(p.sq)) cls.push('grabbable');
+            if (canAct && !p.dying && ownAt(p.sq)) cls.push('grabbable');
             return (
               <div
                 key={p.id}

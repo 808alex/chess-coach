@@ -12,6 +12,7 @@ import { flip, type MoveClass } from '../lib/evalUtil';
 import { eloLabel } from '../lib/bot';
 import { capturedSince, playUci, validateFen } from '../lib/chessUtil';
 import { getSettings, saveGame, saveSettings } from '../lib/storage';
+import { useSettings } from '../lib/useSettings';
 import { go, requestReview, takePlayRequest } from '../lib/nav';
 import { summarize } from '../lib/review';
 import { bookInfo, openingName } from '../data/openingBook';
@@ -206,6 +207,10 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
   const [oppNote, setOppNote] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [modal, setModal] = useState(false);
+  const [premoveQ, setPremoveQ] = useState<string | null>(null);
+  const [flipped, setFlipped] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const live$ = useSettings();
   const [clock, setClock] = useState({ w: tc.base * 1000, b: tc.base * 1000, since: Date.now() });
   // Refs so async bot code always sees the latest state (prevents double moves and stale timing).
   const judgingRef = useRef(false);
@@ -328,7 +333,8 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
         while (judgingRef.current && !stale()) await sleep(40);
         if (stale()) return;
         const v = verdictRef.current;
-        const read = !cfg.coach ? 0 : v.cls === 'brilliant' ? 1800 : v.cls === 'great' ? 1300 : v.cls === 'book' ? 650 : 950;
+        const pace = { quick: 0.4, normal: 1, relaxed: 1.7 }[getSettings().coachPace] ?? 1;
+        const read = !cfg.coach ? 0 : (v.cls === 'brilliant' ? 1800 : v.cls === 'great' ? 1300 : v.cls === 'book' ? 650 : 950) * pace;
         const clockLeft = timed ? clockRef.current[live.turn()] : undefined;
         const humanThink = thinkTimeMs(fenAtStart, mv, ply, ucisRef.current[ply - 1], clockLeft);
         await sleep(Math.max(read - (Date.now() - v.at), humanThink - (Date.now() - t0), 0));
@@ -380,6 +386,9 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
       userColor: cfg.userColor,
       result: res,
       opponent: `${bot.name} (${cfg.elo})`,
+      botId: bot.id,
+      tc: cfg.tc,
+      endReason: resigned ? 'resign' : flagged ? 'time' : live.isCheckmate() ? 'checkmate' : live.isDraw() || live.isStalemate() ? 'draw' : 'other',
       startFen: cfg.startFen,
       ucis,
       opening: cfg.startFen === START ? openingName(sans) : cfg.label,
@@ -457,6 +466,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     setUcis((u) => u.slice(0, n));
     setReports((r) => r.slice(0, n));
     setPaused(null);
+    setPremoveQ(null);
     pausedRef.current = false;
     judgingRef.current = false;
     setThinking(false);
@@ -467,6 +477,53 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     setViewPly(null);
     setClock((c) => ({ ...c, since: Date.now() }));
   }
+
+  // Fire a queued premove as soon as it's our turn again (if it's still legal).
+  useEffect(() => {
+    if (!premoveQ || !userTurn || over || paused || judging) return;
+    const q = premoveQ;
+    const t = setTimeout(() => {
+      setPremoveQ(null);
+      const c = new Chess(liveFen);
+      if (playUci(c, q)) void moveRef.current(q);
+      else play('illegal');
+    }, 40);
+    return () => clearTimeout(t);
+  }, [premoveQ, userTurn, over, paused, judging, liveFen]);
+  const premoveProp = useMemo(
+    () => (!over && !paused && viewPly === null && live$.premoves ? { color: cfg.userColor, queued: premoveQ, onQueue: setPremoveQ } : undefined),
+    [over, paused, viewPly, live$.premoves, cfg.userColor, premoveQ],
+  );
+
+  // Keyboard shortcuts.
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    const k = e.key;
+    if (k === 'ArrowLeft') setViewPly((v) => Math.max(0, (v ?? ucis.length) - 1));
+    else if (k === 'ArrowRight') setViewPly((v) => (v === null || v + 1 >= ucis.length ? null : v + 1));
+    else if (k === 'ArrowUp' || k === 'Home') setViewPly(0);
+    else if (k === 'ArrowDown' || k === 'End') setViewPly(null);
+    else if (k === 'f' || k === 'F') setFlipped((f) => !f);
+    else if ((k === 'h' || k === 'H') && cfg.coach && userTurn && curAnalysis) setHintLevel((h) => Math.min(2, h + 1));
+    else if ((k === 'b' || k === 'B') && cfg.coach && userTurn) setThreats(threatReport(liveFen));
+    else if ((k === 'e' || k === 'E') && cfg.coach) setShowEval((s) => !s);
+    else if ((k === 'z' && (e.ctrlKey || e.metaKey)) || ((k === 't' || k === 'T') && cfg.coach)) {
+      if (cfg.coach && ucis.length && !judging) takeBack();
+    } else if (k === '?') setShowKeys((s) => !s);
+    else if (k === 'Escape') {
+      setPremoveQ(null);
+      setShowKeys(false);
+      setThreats(null);
+    } else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const f = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener('keydown', f);
+    return () => window.removeEventListener('keydown', f);
+  }, []);
 
   const lastReport = shownPly > 0 ? reports[shownPly - 1] : undefined;
   const myLastReport = (() => {
@@ -505,6 +562,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
 
   const cap = capturedSince(cfg.startFen, shownFen);
   const userIsWhite = cfg.userColor === 'w';
+  const orientation: 'white' | 'black' = userIsWhite !== flipped ? 'white' : 'black';
   const oppColor = userIsWhite ? 'b' : 'w';
   const res = over ? resultFor(live, cfg.userColor, resigned, flagged) : null;
   const shownReport = viewPly !== null ? lastReport : myLastReport;
@@ -523,10 +581,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
             : `${bot.name} is opening the game.`
           : 'Your move.';
 
-  return (
-    <div className="game-page">
-      <div className="game-layout">
-        <div className="board-col" ref={boardRef}>
+  const botCardEl = (
           <PlayerCard
             avatar={<BotAvatar color={bot.color} size={40} label={bot.name} />}
             name={bot.name}
@@ -538,13 +593,32 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
             thinking={thinking && !judging}
             isTurn={!over && !userTurn}
           />
+  );
+  const youCardEl = (
+          <PlayerCard
+            avatar={<YouAvatar size={40} />}
+            name="You"
+            captured={cfg.userColor === 'w' ? cap.byWhite : cap.byBlack}
+            lead={cfg.userColor === 'w' ? cap.whiteLead : -cap.whiteLead}
+            capturedColor={oppColor}
+            clock={timed ? { ms: clock[cfg.userColor], since: clock.since, running: clockRunning && live.turn() === cfg.userColor, onFlag: () => onFlag(cfg.userColor) } : undefined}
+            isTurn={!over && userTurn}
+          />
+  );
+
+  return (
+    <div className="game-page">
+      <div className="game-layout">
+        <div className="board-col" ref={boardRef}>
+          {flipped ? youCardEl : botCardEl}
           <div className="board-row">
-            {showEval && <EvalBar score={evalScore} orientation={userIsWhite ? 'white' : 'black'} />}
+            {showEval && <EvalBar score={evalScore} orientation={orientation} />}
             <div className="board-holder">
               <Board
                 fen={shownFen}
-                orientation={userIsWhite ? 'white' : 'black'}
+                orientation={orientation}
                 onMove={handleMove}
+                premove={premoveProp}
                 interactive={!over && userTurn && !judging && !paused && viewPly === null}
                 lastMove={shownPly > 0 ? ucis[shownPly - 1] : undefined}
                 arrows={arrows}
@@ -600,22 +674,43 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
               )}
             </div>
           </div>
-          <PlayerCard
-            avatar={<YouAvatar size={40} />}
-            name="You"
-            captured={cfg.userColor === 'w' ? cap.byWhite : cap.byBlack}
-            lead={cfg.userColor === 'w' ? cap.whiteLead : -cap.whiteLead}
-            capturedColor={oppColor}
-            clock={timed ? { ms: clock[cfg.userColor], since: clock.since, running: clockRunning && live.turn() === cfg.userColor, onFlag: () => onFlag(cfg.userColor) } : undefined}
-            isTurn={!over && userTurn}
-          />
+          {flipped ? botCardEl : youCardEl}
         </div>
 
         <aside className="side-panel">
           <div className="side-tabs">
             <span className="side-title">{cfg.coach ? 'Coach' : 'Match'}</span>
-            <span className="muted small">{cfg.label}</span>
+            <span className="muted small side-label">{cfg.label}</span>
+            <button className="text-btn keys-btn" onClick={() => setShowKeys((x) => !x)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
+              <Icon name="keyboard" size="1.2em" />
+            </button>
           </div>
+          {showKeys && (
+            <div className="keys-panel">
+              {[
+                ['← →', 'Step through moves'],
+                ['↑ ↓', 'First move / back to live'],
+                ['F', 'Flip the board'],
+                ...(cfg.coach
+                  ? [
+                      ['H', 'Hint (press twice to show the move)'],
+                      ['B', 'Blunder check'],
+                      ['E', 'Eval bar on/off'],
+                      ['T or Ctrl+Z', 'Take back'],
+                    ]
+                  : []),
+                ['Right-click', 'Draw arrows and mark squares'],
+                ['Esc', 'Cancel premove'],
+                ['?', 'Show or hide this list'],
+              ].map(([k, v]) => (
+                <div key={k} className="keys-row">
+                  <kbd>{k}</kbd>
+                  <span>{v}</span>
+                </div>
+              ))}
+              {live$.premoves && <p className="muted small">Premoves are on: move a piece while the bot is thinking and it plays the instant the bot moves.</p>}
+            </div>
+          )}
 
           {cfg.coach ? (
             <div className="coach-area">
@@ -684,6 +779,9 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
             </button>
             <button className="nav-btn" onClick={() => setViewPly(null)} aria-label="Live position">
               <Icon name="last" />
+            </button>
+            <button className="nav-btn" onClick={() => setFlipped((f) => !f)} aria-label="Flip board" title="Flip board (F)">
+              <Icon name="flip" />
             </button>
           </div>
           <div className="foot-row">
