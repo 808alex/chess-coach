@@ -6,7 +6,7 @@ import { CoachBubble } from '../components/GameBits';
 import { TaskBoard } from '../components/TaskBoard';
 import { getAnalysisEngine, isCancel } from '../engine/browserEngine';
 import { startFenPly } from '../engine/botPlayer';
-import type { MoveReport } from '../lib/coach';
+import { TAG_INFO, type MoveReport, type Tag } from '../lib/coach';
 import { CLASS_INFO, type MoveClass } from '../lib/evalUtil';
 import { reviewGame, summarize, type GameSummary } from '../lib/review';
 import { getGames, getSettings, saveGame, saveSettings, type GameRecord } from '../lib/storage';
@@ -324,7 +324,7 @@ function Analysis({ loaded }: { loaded: Loaded }) {
               orientation={orientation}
               lastMove={r?.uci}
               arrows={r && r.cls !== 'best' && r.cls !== 'book' ? r.arrows : []}
-              markSquare={r ? { square: r.uci.slice(2, 4), color: CLASS_INFO[r.cls].color, symbol: CLASS_INFO[r.cls].symbol } : undefined}
+              markSquare={r ? { square: r.uci.slice(2, 4), cls: r.cls } : undefined}
               id="review-board"
             />
           </div>
@@ -403,12 +403,39 @@ function Analysis({ loaded }: { loaded: Loaded }) {
 
 const SHOW: MoveClass[] = ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'miss', 'blunder'];
 function SummaryCard({ title, s }: { title: string; s: GameSummary }) {
+  const weak = Object.entries(s.tags)
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+    .slice(0, 2)
+    .map(([t]) => TAG_INFO[t as Tag]?.label)
+    .filter(Boolean);
   return (
     <div className="sum-card">
-      <div className="row between">
-        <h3>{title}</h3>
-        <span className="acc">{s.accuracy}%</span>
+      <div className="sum-top">
+        <div>
+          <h3>{title}</h3>
+          <span className="muted small">Accuracy {s.accuracy}%</span>
+        </div>
+        {s.rating && (
+          <div className="game-rating" title="Estimated from how much you lost per move compared with the engine. One game is a rough guide only.">
+            <span className="gr-num">{s.rating.estimate}</span>
+            <span className="gr-label">
+              game rating · {s.rating.low}–{s.rating.high}
+            </span>
+          </div>
+        )}
       </div>
+      {s.rating && Object.keys(s.rating.phases).length > 0 && (
+        <div className="phase-row">
+          {(['opening', 'middlegame', 'endgame'] as const).map((ph) =>
+            s.rating!.phases[ph] ? (
+              <span key={ph} className="phase-chip">
+                {ph[0].toUpperCase() + ph.slice(1)} <b>{s.rating!.phases[ph]}</b>
+              </span>
+            ) : null,
+          )}
+        </div>
+      )}
+      {weak.length > 0 && <p className="small muted held-back">Held back by: {weak.join(', ').toLowerCase()}.</p>}
       <div className="class-counts">
         {SHOW.filter((c) => s.counts[c]).map((c) => (
           <span key={c} className="cc">

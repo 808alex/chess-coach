@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react';
 import type { Score } from '../lib/engineTypes';
 import { CLASS_INFO, formatScore, winPct, type MoveClass } from '../lib/evalUtil';
 import type { MoveReport } from '../lib/coach';
+import { ClassIcon } from './ClassIcon';
 
 /** Vertical evaluation bar, White's point of view. */
 export function EvalBar({ score, orientation }: { score: Score | null; orientation: 'white' | 'black' }) {
@@ -18,7 +20,7 @@ export function ClassGlyph({ cls, size = 'md' }: { cls: MoveClass; size?: 'sm' |
   const i = CLASS_INFO[cls];
   return (
     <span className={`glyph glyph-${size}`} style={{ background: i.color }} title={i.label}>
-      {i.symbol}
+      <ClassIcon cls={cls} />
     </span>
   );
 }
@@ -29,7 +31,9 @@ export function Verdict({ r, perspective = 'you' }: { r: MoveReport; perspective
   return (
     <div className="verdict" style={{ ['--cls' as string]: i.color }}>
       <div className="verdict-head">
-        <span className="verdict-symbol">{i.symbol}</span>
+        <span className="verdict-symbol" style={{ background: i.color }}>
+          <ClassIcon cls={r.cls} />
+        </span>
         <div>
           <div className="verdict-label">
             {r.san} is {i.label === 'Best' || i.label === 'Book' ? `the ${i.label.toLowerCase()} move` : i.label === 'Missed win' ? 'a missed win' : `${/^[AEIOU]/.test(i.label) ? 'an' : 'a'} ${i.label.toLowerCase()}`}
@@ -110,8 +114,13 @@ export function MoveList({ sans, reports, current, onPick, startPly = 0 }: { san
       </button>
     );
   };
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (el && current >= sans.length - 2) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, [sans.length, current]);
   return (
-    <div className="movelist">
+    <div className="movelist" ref={box}>
       {rows.map((row, k) => (
         <div className="ml-row" key={k}>
           <span className="ml-no">{row.no}.</span>

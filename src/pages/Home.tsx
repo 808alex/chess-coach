@@ -41,7 +41,7 @@ function HeroBoard() {
         lastMove={last}
         sound={false}
         id="hero"
-        markSquare={note && last ? { square: last.slice(2, 4), color: CLASS_INFO[note.cls].color, symbol: CLASS_INFO[note.cls].symbol } : undefined}
+        markSquare={note && last ? { square: last.slice(2, 4), cls: note.cls } : undefined}
       />
       {note && (
         <div className="hero-tag" key={n} style={{ color: CLASS_INFO[note.cls].color }}>

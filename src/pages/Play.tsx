@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { Board } from '../components/Board';
 import { EvalBar, MoveList } from '../components/Bits';
@@ -7,7 +7,7 @@ import { getAnalysisEngine, getBotEngine, isCancel } from '../engine/browserEngi
 import { botMove, startFenPly } from '../engine/botPlayer';
 import type { Analysis } from '../lib/engineTypes';
 import { judgeMove, threatReport, type MoveReport } from '../lib/coach';
-import { CLASS_INFO, flip, type MoveClass } from '../lib/evalUtil';
+import { flip, type MoveClass } from '../lib/evalUtil';
 import { eloLabel } from '../lib/bot';
 import { capturedSince, playUci, validateFen } from '../lib/chessUtil';
 import { getSettings, saveGame, saveSettings } from '../lib/storage';
@@ -20,6 +20,7 @@ import { play } from '../lib/sound';
 import { confetti, confettiFrom } from '../lib/confetti';
 
 const START = new Chess().fen();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SCREENSHOT_FEN = 'r1bqkb1r/2pp1ppp/p1n2n2/1p2p3/4P3/1BN2N2/PPPP1PPP/R1BQK2R b KQkq - 1 6';
 
 type Setup = { fen: string; elo: number; color: 'w' | 'b' | 'random'; coach: boolean; label: string; tc: string };
@@ -205,7 +206,12 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
   const [savedId, setSavedId] = useState<string | null>(null);
   const [modal, setModal] = useState(false);
   const [clock, setClock] = useState({ w: tc.base * 1000, b: tc.base * 1000, since: Date.now() });
-  const [, setTick] = useState(0);
+  // Refs so async bot code always sees the latest state (prevents double moves and stale timing).
+  const judgingRef = useRef(false);
+  const pausedRef = useRef(false);
+  const liveFenRef = useRef('');
+  const verdictRef = useRef<{ at: number; cls: MoveClass | null }>({ at: 0, cls: null });
+  const botToken = useRef(0);
   const analyses = useRef(new Map<string, Promise<Analysis>>());
   const gen = useRef(0);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -225,6 +231,8 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     return ucis.map((u) => playUci(c, u)!.san);
   }, [ucis, cfg.startFen]);
 
+  const sansRef = useRef<string[]>([]);
+  sansRef.current = sans;
   const liveFen = fens[fens.length - 1];
   const live = useMemo(() => new Chess(liveFen), [liveFen]);
   const shownPly = viewPly ?? ucis.length;
@@ -233,6 +241,10 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
   const over = live.isGameOver() || resigned || !!flagged;
   const startPly = startFenPly(cfg.startFen);
   const clockRunning = timed && !over && !paused && ucis.length > 0;
+
+  judgingRef.current = judging;
+  pausedRef.current = !!paused;
+  liveFenRef.current = liveFen;
 
   function analyse(fen: string) {
     let p = analyses.current.get(fen);
@@ -262,26 +274,25 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     setClock((c) => ({ ...c, [mover]: c[mover] - (Date.now() - c.since) + tc.inc * 1000, since: Date.now() }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ucis.length]);
+  // Pausing (coach) freezes the clock: charge time up to the pause, restart on resume.
+  const prevRunning = useRef(false);
   useEffect(() => {
-    if (!timed || over) return;
-    const iv = setInterval(() => {
-      if (!clockRunning) {
-        setClock((c) => ({ ...c, since: Date.now() }));
-        return;
-      }
+    const was = prevRunning.current;
+    prevRunning.current = clockRunning;
+    if (!timed || was === clockRunning) return;
+    setClock((c) => {
+      if (!was) return { ...c, since: Date.now() };
       const side = live.turn();
-      const left = clock[side] - (Date.now() - clock.since);
-      if (left <= 0) {
-        gen.current++;
-        setClock((c) => ({ ...c, [side]: 0 }));
-        setFlagged(side);
-        setThinking(false);
-      }
-      setTick((t) => t + 1);
-    }, 100);
-    return () => clearInterval(iv);
-  }, [timed, over, clockRunning, live, clock]);
-  const timeLeft = (side: 'w' | 'b') => (clockRunning && live.turn() === side ? clock[side] - (Date.now() - clock.since) : clock[side]);
+      return { ...c, [side]: c[side] - (Date.now() - c.since), since: Date.now() };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clockRunning]);
+  const onFlag = useCallback((side: 'w' | 'b') => {
+    gen.current++;
+    setClock((c) => ({ ...c, [side]: 0 }));
+    setFlagged(side);
+    setThinking(false);
+  }, []);
 
   // Keep an analysis of the live position.
   useEffect(() => {
@@ -295,50 +306,59 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveFen]);
 
-  // Computer's turn.
+  // Computer's turn. The bot starts thinking straight away (in parallel with the coach),
+  // but only plays once the coach has spoken and you've had a moment to read it.
   useEffect(() => {
-    if (over || userTurn || paused || judging) return;
+    if (over || userTurn || paused) return;
     const g = gen.current;
-    setThinking(true);
+    const token = ++botToken.current;
+    const fenAtStart = liveFen;
+    const ply = fens.length - 1;
     const t0 = Date.now();
+    setThinking(true);
+    const stale = () => g !== gen.current || token !== botToken.current || pausedRef.current || liveFenRef.current !== fenAtStart;
     botMove(liveFen, cfg.elo)
       .then(async (mv) => {
-        const wait = Math.max(0, 450 - (Date.now() - t0));
-        await new Promise((r) => setTimeout(r, wait));
-        if (g !== gen.current) return;
-        const fenBefore = liveFen;
-        const ply = fens.length - 1;
+        while (judgingRef.current && !stale()) await sleep(40);
+        if (stale()) return;
+        const v = verdictRef.current;
+        const read = !cfg.coach ? 0 : v.cls === 'brilliant' ? 1800 : v.cls === 'great' ? 1300 : v.cls === 'book' ? 650 : 950;
+        const humanThink = 380 + Math.random() * 520;
+        await sleep(Math.max(read - (Date.now() - v.at), humanThink - (Date.now() - t0), 0));
+        if (stale()) return;
+        const fenBefore = fenAtStart;
+        const after = new Chess(fenBefore);
+        const m = playUci(after, mv);
         setUcis((u) => [...u, mv]);
         setThinking(false);
-        if (cfg.coach) {
-          const a = await analyse(fenBefore);
-          const after = new Chess(fenBefore);
-          playUci(after, mv);
-          if (after.isGameOver()) return;
-          const b = await analyse(after.fen());
-          if (g !== gen.current) return;
-          const r = judgeMove(fenBefore, mv, a, b, { ply });
-          setReports((rs) => {
-            const copy = [...rs];
-            copy[ply] = r;
-            return copy;
-          });
-          if (['mistake', 'blunder', 'miss'].includes(r.cls)) {
-            play('notify');
-            setOppNote(
-              r.tags.includes('hung-piece') || r.tags.includes('removed-defender') || r.tags.includes('ignored-threat')
-                ? `${bot.name} just slipped — something is loose. Check captures first.`
-                : `${bot.name} just made a mistake. Look for a tactic before you play a normal move.`,
-            );
-          }
+        if (!cfg.coach || !m) return;
+        const a = await analyse(fenBefore);
+        if (after.isGameOver()) return;
+        const b = await analyse(after.fen());
+        if (g !== gen.current) return;
+        const sansNow = [...sansRef.current.slice(0, ply), m.san];
+        const isBook = cfg.startFen === START && !!bookInfo(sansNow) && sansNow.length <= 30;
+        const r = judgeMove(fenBefore, mv, a, b, { ply, isBook });
+        setReports((rs) => {
+          const copy = [...rs];
+          copy[ply] = r;
+          return copy;
+        });
+        if (['mistake', 'blunder', 'miss'].includes(r.cls)) {
+          setTimeout(() => play('notify'), 250);
+          setOppNote(
+            r.tags.includes('hung-piece') || r.tags.includes('removed-defender') || r.tags.includes('ignored-threat')
+              ? `${bot.name} just slipped — something is loose. Check captures first.`
+              : `${bot.name} just made a mistake. Look for a tactic before you play a normal move.`,
+          );
         }
       })
       .catch((e) => {
         if (!isCancel(e)) console.error(e);
-        if (g === gen.current) setThinking(false);
+        if (g === gen.current && token === botToken.current) setThinking(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveFen, userTurn, over, paused, judging]);
+  }, [liveFen, userTurn, over, paused]);
 
   // Game over: save, sound, confetti, modal.
   useEffect(() => {
@@ -378,30 +398,40 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     setOppNote(null);
     const ply = ucis.length;
     setUcis((u) => [...u, uci]);
+    verdictRef.current = { at: Date.now(), cls: null };
     if (!cfg.coach) return true;
+    judgingRef.current = true;
     setJudging(true);
     try {
       const a = await analyse(fenBefore);
       const b = c.isGameOver() ? null : await analyse(c.fen());
       if (g !== gen.current) return true;
       const sansNow = [...sans, c.history().at(-1)!];
-      const isBook = cfg.startFen === START && !!bookInfo(sansNow) && sansNow.length <= 16;
+      const isBook = cfg.startFen === START && !!bookInfo(sansNow) && sansNow.length <= 30;
       const r = judgeMove(fenBefore, uci, a, b, { ply, isBook });
       setReports((rs) => {
         const copy = [...rs];
         copy[ply] = r;
         return copy;
       });
+      verdictRef.current = { at: Date.now(), cls: r.cls };
+      // Stagger the feedback: the piece lands, then the grade pops, then any sound/celebration.
       if (r.cls === 'brilliant') {
-        play('brilliant');
-        confettiFrom(boardRef.current, 90);
-      } else if (r.cls === 'great') play('correct');
-      else if (r.cls === 'blunder') play('blunder');
-      if ((['mistake', 'blunder', 'miss'] as MoveClass[]).includes(r.cls) && !c.isGameOver()) setPaused(r);
+        setTimeout(() => play('brilliant'), 180);
+        setTimeout(() => confettiFrom(boardRef.current, 45), 380);
+      } else if (r.cls === 'great') setTimeout(() => play('correct'), 180);
+      else if (r.cls === 'blunder') setTimeout(() => play('blunder'), 180);
+      if ((['mistake', 'blunder', 'miss'] as MoveClass[]).includes(r.cls) && !c.isGameOver()) {
+        pausedRef.current = true;
+        setPaused(r);
+      }
     } catch (e) {
       if (!isCancel(e)) console.error(e);
     } finally {
-      if (g === gen.current) setJudging(false);
+      if (g === gen.current) {
+        judgingRef.current = false;
+        setJudging(false);
+      }
     }
     return true;
   }
@@ -420,6 +450,8 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
     setUcis((u) => u.slice(0, n));
     setReports((r) => r.slice(0, n));
     setPaused(null);
+    pausedRef.current = false;
+    judgingRef.current = false;
     setThinking(false);
     setJudging(false);
     setHintLevel(0);
@@ -442,7 +474,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
         : flip(curAnalysis.lines[0].score)
       : lastReport?.evalAfterWhite ?? null;
 
-  const arrows = (() => {
+  const arrows = useMemo(() => {
     if (viewPly !== null) return lastReport?.arrows ?? [];
     if (paused) return paused.arrows;
     if (hintLevel >= 2 && curAnalysis?.lines[0]) {
@@ -450,7 +482,19 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
       return [{ from: m.slice(0, 2), to: m.slice(2, 4), color: 'rgba(129,182,76,.9)' }];
     }
     return [];
-  })();
+  }, [viewPly, lastReport, paused, hintLevel, curAnalysis]);
+  const threatSquares = useMemo(() => (viewPly === null ? threats?.squares ?? [] : []), [viewPly, threats]);
+  const hintSquares = useMemo(
+    () => (viewPly === null && hintLevel === 1 && curAnalysis?.lines[0] ? [curAnalysis.lines[0].move.slice(0, 2)] : []),
+    [viewPly, hintLevel, curAnalysis],
+  );
+  const markSquare = useMemo(() => (lastReport && cfg.coach ? { square: lastReport.uci.slice(2, 4), cls: lastReport.cls } : undefined), [lastReport, cfg.coach]);
+  const moveRef = useRef(onUserMove);
+  moveRef.current = onUserMove;
+  const handleMove = useCallback((u: string) => {
+    void moveRef.current(u);
+    return true;
+  }, []);
 
   const cap = capturedSince(cfg.startFen, shownFen);
   const userIsWhite = cfg.userColor === 'w';
@@ -464,9 +508,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
 
   const coachText = over
     ? resultText(live, cfg.userColor, resigned, flagged)
-    : judging
-      ? 'Let me look at that…'
-      : shownReport
+    : shownReport
         ? undefined
         : ucis.length === 0
           ? userTurn
@@ -485,9 +527,8 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
             captured={oppColor === 'w' ? cap.byWhite : cap.byBlack}
             lead={oppColor === 'w' ? cap.whiteLead : -cap.whiteLead}
             capturedColor={userIsWhite ? 'w' : 'b'}
-            clockMs={timed ? timeLeft(oppColor) : undefined}
-            clockActive={clockRunning && live.turn() === oppColor}
-            thinking={thinking}
+            clock={timed ? { ms: clock[oppColor], since: clock.since, running: clockRunning && live.turn() === oppColor, onFlag: () => onFlag(oppColor) } : undefined}
+            thinking={thinking && !judging}
             isTurn={!over && !userTurn}
           />
           <div className="board-row">
@@ -496,16 +537,13 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
               <Board
                 fen={shownFen}
                 orientation={userIsWhite ? 'white' : 'black'}
-                onMove={(u) => {
-                  void onUserMove(u);
-                  return true;
-                }}
-                interactive={!over && userTurn && !thinking && !judging && !paused && viewPly === null}
+                onMove={handleMove}
+                interactive={!over && userTurn && !judging && !paused && viewPly === null}
                 lastMove={shownPly > 0 ? ucis[shownPly - 1] : undefined}
                 arrows={arrows}
-                highlights={viewPly === null ? threats?.squares ?? [] : []}
-                hintSquares={viewPly === null && hintLevel === 1 && curAnalysis?.lines[0] ? [curAnalysis.lines[0].move.slice(0, 2)] : []}
-                markSquare={lastReport && cfg.coach ? { square: lastReport.uci.slice(2, 4), color: CLASS_INFO[lastReport.cls].color, symbol: CLASS_INFO[lastReport.cls].symbol } : undefined}
+                highlights={threatSquares}
+                hintSquares={hintSquares}
+                markSquare={markSquare}
                 id="game-board"
               />
               {modal && res && (
@@ -521,6 +559,10 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
                     {mineSummary && (
                       <div className="go-stats">
                         <div>
+                          <b>{mineSummary.rating?.estimate ?? '–'}</b>
+                          <span>game rating</span>
+                        </div>
+                        <div>
                           <b>{mineSummary.accuracy}%</b>
                           <span>accuracy</span>
                         </div>
@@ -531,10 +573,6 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
                         <div>
                           <b>{mineSummary.counts.mistake ?? 0}</b>
                           <span>mistakes</span>
-                        </div>
-                        <div>
-                          <b>{(mineSummary.counts.best ?? 0) + (mineSummary.counts.great ?? 0) + (mineSummary.counts.brilliant ?? 0)}</b>
-                          <span>best moves</span>
                         </div>
                       </div>
                     )}
@@ -561,8 +599,7 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
             captured={cfg.userColor === 'w' ? cap.byWhite : cap.byBlack}
             lead={cfg.userColor === 'w' ? cap.whiteLead : -cap.whiteLead}
             capturedColor={oppColor}
-            clockMs={timed ? timeLeft(cfg.userColor) : undefined}
-            clockActive={clockRunning && live.turn() === cfg.userColor}
+            clock={timed ? { ms: clock[cfg.userColor], since: clock.since, running: clockRunning && live.turn() === cfg.userColor, onFlag: () => onFlag(cfg.userColor) } : undefined}
             isTurn={!over && userTurn}
           />
         </div>
@@ -584,10 +621,10 @@ function GameView({ cfg, onExit, onRematch }: { cfg: GameConfig; onExit: () => v
                     <button onClick={() => setPaused(null)}>Play on anyway</button>
                   </div>
                 </CoachBubble>
-              ) : shownReport && !judging && !over ? (
-                <CoachBubble report={shownReport} />
+              ) : shownReport && !over ? (
+                <CoachBubble report={shownReport} thinking={judging} />
               ) : (
-                <CoachBubble text={coachText} />
+                <CoachBubble text={coachText} thinking={judging} />
               )}
               {oppNote && !paused && viewPly === null && <div className="opp-note">{oppNote}</div>}
               {threats && viewPly === null && (

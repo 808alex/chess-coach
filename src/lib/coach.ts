@@ -1,6 +1,6 @@
 import { Chess, type Color, type Move, type Square } from 'chess.js';
 import type { Analysis, Line, Score } from './engineTypes';
-import { flip, moveAccuracy, winPct, type MoveClass } from './evalUtil';
+import { flip, moveAccuracy, scoreToCp, winPct, type MoveClass } from './evalUtil';
 import {
   NAME,
   VALUE,
@@ -77,6 +77,7 @@ export type MoveReport = {
   winBefore: number; // mover's win% with best play
   winAfter: number; // mover's win% after the played move
   accuracy: number;
+  cpLoss: number; // centipawns lost vs the best move (capped), used for the game rating
   evalAfterWhite: Score; // engine score after the move, White's point of view
   bestUci: string;
   bestSan: string;
@@ -195,6 +196,7 @@ export function judgeMove(fenBefore: string, uci: string, a: Analysis, b: Analys
     winBefore: winBest,
     winAfter: winPlayed,
     accuracy: moveAccuracy(winBest, winPlayed),
+    cpLoss: isBest ? 0 : Math.max(0, capCp(scoreToCp(bestScore)) - capCp(scoreToCp(playedScore))),
     evalAfterWhite: mover === 'w' ? playedScore : flip(playedScore),
     bestUci: best?.move ?? uci,
     bestSan: best ? new Chess(fenBefore).move(parseUci(best.move)).san : move.san,
@@ -217,7 +219,8 @@ export function judgeMove(fenBefore: string, uci: string, a: Analysis, b: Analys
   })();
 
   let cls: MoveClass;
-  if (ctx.isBook) cls = 'book';
+  // Book only for moves that aren't actually bad (trap lines are in opening databases too).
+  if (ctx.isBook && loss < 5) cls = 'book';
   else if (isBest || loss < 1) {
     const brilliant =
       sacrificed.length > 0 &&
@@ -381,6 +384,8 @@ export function judgeMove(fenBefore: string, uci: string, a: Analysis, b: Analys
   if (best) d.push(positionalHint(fenBefore, best));
   return report;
 }
+
+const capCp = (cp: number) => Math.max(-1000, Math.min(1000, cp));
 
 function wasDefendedBy(fen: string, target: Square, defenderSq: Square, color: Color) {
   const c = new Chess(fen);

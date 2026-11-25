@@ -507,11 +507,15 @@ details summary {
   align-items: center;
 }
 .verdict-symbol {
-  font-size: 2.4rem;
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  font-size: 1.1rem;
   font-weight: 800;
-  color: var(--cls);
-  min-width: 1.4em;
-  text-align: center;
+  color: #fff;
+  flex: none;
   line-height: 1;
   animation: glyphPop 0.5s cubic-bezier(0.3, 1.7, 0.5, 1) both;
 }
@@ -830,6 +834,24 @@ details summary {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+}
+.coach-av-wrap {
+  position: relative;
+  flex: none;
+}
+.coach-thinking {
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  transform: translateX(-50%);
+  margin: 0;
+  background: var(--panel-2);
+  padding: 3px 6px;
+  border-radius: 99px;
+}
+.coach-bubble.is-thinking .bubble {
+  opacity: 0.75;
+  transition: opacity 0.2s;
 }
 .coach-avatar {
   flex: none;
@@ -1323,6 +1345,52 @@ details summary {
   box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
   animation: cardIn 0.4s ease-out both;
 }
+.sum-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.sum-top h3 {
+  margin: 0;
+}
+.game-rating {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  animation: popIn 0.5s cubic-bezier(0.3, 1.5, 0.5, 1) 0.15s both;
+}
+.gr-num {
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold);
+}
+.gr-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.phase-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.phase-chip {
+  background: var(--bg-2);
+  border-radius: 99px;
+  padding: 3px 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.phase-chip b {
+  color: var(--text);
+}
+.held-back {
+  margin: 8px 0 0;
+}
 .acc {
   font-size: 1.8rem;
   font-weight: 800;
@@ -1618,6 +1686,17 @@ details summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
   overflow: hidden;
+}
+.ci-text {
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  line-height: 1;
+}
+.glyph svg,
+.square-mark svg,
+.bubble-glyph svg,
+.verdict-symbol svg {
+  display: block;
 }
 .confetti-canvas {
   position: fixed;

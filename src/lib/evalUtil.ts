@@ -58,15 +58,15 @@ export type MoveClass =
   | 'blunder';
 
 export const CLASS_INFO: Record<MoveClass, { label: string; color: string; symbol: string }> = {
-  book: { label: 'Book', color: '#a88865', symbol: '📖' },
+  book: { label: 'Book', color: '#a88865', symbol: 'Bk' },
   brilliant: { label: 'Brilliant', color: '#1baca6', symbol: '!!' },
   great: { label: 'Great', color: '#5c8bb0', symbol: '!' },
-  best: { label: 'Best', color: '#81b64c', symbol: '★' },
-  excellent: { label: 'Excellent', color: '#81b64c', symbol: '👍' },
-  good: { label: 'Good', color: '#77915f', symbol: '✓' },
+  best: { label: 'Best', color: '#81b64c', symbol: '*' },
+  excellent: { label: 'Excellent', color: '#96bc4b', symbol: '✓' },
+  good: { label: 'Good', color: '#7d9a5e', symbol: '✓' },
   inaccuracy: { label: 'Inaccuracy', color: '#f7c631', symbol: '?!' },
   mistake: { label: 'Mistake', color: '#ffa459', symbol: '?' },
-  miss: { label: 'Missed win', color: '#ff7769', symbol: '✗' },
+  miss: { label: 'Missed win', color: '#ff7769', symbol: 'x' },
   blunder: { label: 'Blunder', color: '#fa412d', symbol: '??' },
 };
 

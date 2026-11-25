@@ -88,54 +88,46 @@ export const BOOK: [string, string][] = [
   ['Hungarian Opening', 'g3 d5 Bg2 Nf6'],
 ];
 
-// Named traps and sidelines: used for naming a game, but NOT treated as "book" moves.
-export const NAMED_ONLY: [string, string][] = [
-  ['Italian Game: Blackburne Shilling Gambit', 'e4 e5 Nf3 Nc6 Bc4 Nd4'],
-  ['Two Knights: Fried Liver Attack', 'e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 d5 exd5 Nxd5 Nxf7'],
-  ['Two Knights: Traxler', 'e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 Bc5'],
-  ['Ruy Lopez: Noah’s Ark Trap', 'e4 e5 Nf3 Nc6 Bb5 a6 Ba4 d6 d4 b5 Bb3 Nxd4 Nxd4 exd4 Qxd4 c5'],
-  ['Petrov: Stafford-style 3...Nxe4 trap', 'e4 e5 Nf3 Nf6 Nxe5 Nxe4 Qe2'],
-  ['Stafford Gambit', 'e4 e5 Nf3 Nf6 Nxe5 Nc6'],
-  ['Elephant Trap', 'd4 d5 c4 e6 Nc3 Nf6 Bg5 Nbd7 cxd5 exd5 Nxd5'],
-  ["Scholar's Mate attempt", 'e4 e5 Bc4 Nc6 Qh5'],
-  ['Englund Gambit', 'd4 e5'],
-  ['Latvian Gambit', 'e4 e5 Nf3 f5'],
-  ['Damiano Defence', 'e4 e5 Nf3 f6'],
-  ['Elephant Gambit', 'e4 e5 Nf3 d5'],
-  ['Englund Gambit', 'd4 e5'],
-];
+// The runtime book is built by tools/build-book.ts from the Lichess opening database (CC0) + the lines above.
+import bookData from './book.json';
+import { Chess } from 'chess.js';
+import { posKey } from '../lib/posKey';
 
-const PARSED = BOOK.map(([name, line]) => ({ name, moves: line.split(' ') }));
-const NAMES = [...PARSED, ...NAMED_ONLY.map(([name, line]) => ({ name, moves: line.split(' ') }))];
+const BOOK_POS = (bookData as { names: string[]; pos: Record<string, number> }).pos;
+const BOOK_NAMES = (bookData as { names: string[]; pos: Record<string, number> }).names;
 
-/** If the SAN sequence is a prefix of a book line, return the matching opening (most specific first). */
-export function bookInfo(sans: string[]): { name: string } | null {
-  if (!sans.length) return { name: 'Starting position' };
-  let best: { name: string; len: number } | null = null;
-  for (const p of PARSED) {
-    if (sans.length > p.moves.length) continue;
-    let ok = true;
-    for (let i = 0; i < sans.length; i++)
-      if (p.moves[i] !== sans[i]) {
-        ok = false;
-        break;
-      }
-    if (ok && (!best || p.moves.length < best.len)) best = { name: p.name, len: p.moves.length };
+/** Walk a SAN move list from the start. Returns how many plies stay in book and the last opening name seen. */
+function walk(sans: string[]) {
+  const c = new Chess();
+  let inBook = 0;
+  let name = '';
+  for (let i = 0; i < sans.length; i++) {
+    try {
+      c.move(sans[i]);
+    } catch {
+      break;
+    }
+    const v = BOOK_POS[posKey(c.fen())];
+    if (v === undefined) break;
+    inBook = i + 1;
+    if (v >= 0) name = BOOK_NAMES[v];
   }
-  return best ? { name: best.name } : null;
+  return { inBook, name };
 }
 
-/** Best-effort opening name for a full game (longest matching prefix). */
+/** Is every move of this SAN sequence book? Returns the opening name so far. */
+export function bookInfo(sans: string[]): { name: string } | null {
+  if (!sans.length) return { name: 'Starting position' };
+  const w = walk(sans);
+  return w.inBook === sans.length ? { name: w.name || 'Book' } : null;
+}
+
+/** Name of the opening a game went into (the last named book position it reached). */
 export function openingName(sans: string[]): string {
-  let bestName = '';
-  let bestLen = 0;
-  for (const p of NAMES) {
-    let n = 0;
-    while (n < p.moves.length && n < sans.length && p.moves[n] === sans[n]) n++;
-    if (n > bestLen || (n === bestLen && n === p.moves.length)) {
-      bestLen = n;
-      bestName = p.name;
-    }
-  }
-  return bestLen >= 2 ? bestName : 'Unknown opening';
+  return walk(sans).name || 'Unknown opening';
+}
+
+/** Book check for any position (used for positions that didn't start from the initial setup). */
+export function isBookFen(fen: string) {
+  return BOOK_POS[posKey(fen)] !== undefined;
 }

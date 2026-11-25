@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess, type Square } from 'chess.js';
 import type { Arrow } from '../lib/coach';
@@ -6,6 +6,8 @@ import { getSettings } from '../lib/storage';
 import { themeById } from '../lib/themes';
 import { moveSound, play } from '../lib/sound';
 import { playUci } from '../lib/chessUtil';
+import { CLASS_INFO, type MoveClass } from '../lib/evalUtil';
+import { ClassIcon } from './ClassIcon';
 
 type Props = {
   fen: string;
@@ -17,13 +19,13 @@ type Props = {
   lastMove?: string; // uci
   highlights?: string[]; // squares to mark in red (threats)
   hintSquares?: string[]; // squares to mark in green (hints)
-  markSquare?: { square: string; color: string; symbol?: string };
+  markSquare?: { square: string; cls: MoveClass };
   id?: string;
   sound?: boolean;
   flash?: 'good' | 'bad' | null; // brief border flash (puzzle solved / wrong)
 };
 
-export function Board({
+export const Board = memo(function Board({
   fen,
   orientation = 'white',
   onMove,
@@ -82,8 +84,8 @@ export function Board({
       setPromo({ from, to });
       return true;
     }
-    const ok = onMove(from + to);
     setSelected(null);
+    const ok = onMove(from + to);
     return ok !== false;
   }
 
@@ -129,7 +131,13 @@ export function Board({
     arrows: arrows.map((a) => ({ startSquare: a.from, endSquare: a.to, color: a.color })),
     allowDrawingArrows: true,
     clearArrowsOnPositionChange: true,
-    animationDurationInMs: 200,
+    animationDurationInMs: 230,
+    squareStyle: { transition: 'background 0.16s ease, box-shadow 0.16s ease' },
+    onPieceDrag: ({ square }: { square: string | null }) => {
+      if (!interactive || !square) return;
+      const p = chess.get(square as Square);
+      if (p && p.color === chess.turn()) setSelected(square);
+    },
     dropSquareStyle: { boxShadow: 'inset 0 0 0 4px rgba(255,255,255,.75)' },
     canDragPiece: ({ piece }: { piece: { pieceType: string } }) => interactive && piece.pieceType[0] === chess.turn(),
     onPieceDrop: ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }) =>
@@ -152,7 +160,7 @@ export function Board({
   return (
     <div className={`board-wrap ${flash ? 'flash-' + flash : ''} ${shake ? `shake-${shake % 2}` : ''}`}>
       <Chessboard options={options as never} />
-      {markSquare && <SquareMark key={markSquare.square + markSquare.symbol + fen} {...markSquare} orientation={orientation} />}
+      {markSquare && <SquareMark key={markSquare.square + markSquare.cls + fen} {...markSquare} orientation={orientation} />}
       {promo && (
         <div className="promo" role="dialog" aria-label="Choose promotion piece">
           {(['q', 'r', 'b', 'n'] as const).map((p) => (
@@ -175,16 +183,16 @@ export function Board({
       )}
     </div>
   );
-}
+});
 
-function SquareMark({ square, color, symbol, orientation }: { square: string; color: string; symbol?: string; orientation: 'white' | 'black' }) {
+function SquareMark({ square, cls, orientation }: { square: string; cls: MoveClass; orientation: 'white' | 'black' }) {
   const f = square.charCodeAt(0) - 97;
   const r = Number(square[1]) - 1;
   const x = orientation === 'white' ? f : 7 - f;
   const y = orientation === 'white' ? 7 - r : r;
   return (
-    <div className="square-mark" style={{ left: `calc(${(x + 1) * 12.5}% - 1.15em)`, top: `calc(${y * 12.5}% - 0.55em)`, background: color }} aria-hidden>
-      {symbol}
+    <div className="square-mark" style={{ left: `calc(${(x + 1) * 12.5}% - 1.15em)`, top: `calc(${y * 12.5}% - 0.55em)`, background: CLASS_INFO[cls].color }} aria-hidden>
+      <ClassIcon cls={cls} />
     </div>
   );
 }

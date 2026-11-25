@@ -1,6 +1,8 @@
+import { useEffect, useRef, useState } from 'react';
 import type { PieceSymbol } from 'chess.js';
 import type { MoveReport } from '../lib/coach';
 import { CLASS_INFO } from '../lib/evalUtil';
+import { ClassIcon } from './ClassIcon';
 
 const GLYPH: Record<string, string> = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' };
 
@@ -83,9 +85,27 @@ export function formatClock(ms: number) {
   return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 }
 
-export function Clock({ ms, active }: { ms: number; active: boolean }) {
-  const low = ms < 30000;
-  return <div className={`clock ${active ? 'active' : ''} ${low && active ? 'low' : ''}`}>{formatClock(ms)}</div>;
+export type ClockProps = { ms: number; since: number; running: boolean; onFlag: () => void };
+
+/** Ticks on its own so the rest of the game screen doesn't re-render every 100 ms. */
+export function Clock({ ms, since, running, onFlag }: ClockProps) {
+  const [, force] = useState(0);
+  const flagRef = useRef(onFlag);
+  flagRef.current = onFlag;
+  useEffect(() => {
+    if (!running) return;
+    let t: ReturnType<typeof setTimeout>;
+    const loop = () => {
+      const left = ms - (Date.now() - since);
+      force((x) => x + 1);
+      if (left <= 0) return flagRef.current();
+      t = setTimeout(loop, left < 20000 ? 50 : 250);
+    };
+    loop();
+    return () => clearTimeout(t);
+  }, [ms, since, running]);
+  const left = running ? ms - (Date.now() - since) : ms;
+  return <div className={`clock ${running ? 'active' : ''} ${left < 30000 && running ? 'low' : ''}`}>{formatClock(left)}</div>;
 }
 
 export function PlayerCard({
@@ -95,8 +115,7 @@ export function PlayerCard({
   captured,
   lead,
   capturedColor,
-  clockMs,
-  clockActive,
+  clock,
   thinking,
   isTurn,
 }: {
@@ -106,8 +125,7 @@ export function PlayerCard({
   captured: PieceSymbol[];
   lead: number;
   capturedColor: 'w' | 'b';
-  clockMs?: number;
-  clockActive?: boolean;
+  clock?: ClockProps;
   thinking?: boolean;
   isTurn?: boolean;
 }) {
@@ -127,22 +145,33 @@ export function PlayerCard({
         </div>
         <Captured pieces={captured} lead={lead} capturedColor={capturedColor} />
       </div>
-      {clockMs !== undefined && <Clock ms={clockMs} active={!!clockActive} />}
+      {clock && <Clock {...clock} />}
     </div>
   );
 }
 
 /** The coach talking: avatar + speech bubble. */
-export function CoachBubble({ report, text, children }: { report?: MoveReport; text?: string; children?: React.ReactNode }) {
+export function CoachBubble({ report, text, children, thinking }: { report?: MoveReport; text?: string; children?: React.ReactNode; thinking?: boolean }) {
   const info = report ? CLASS_INFO[report.cls] : null;
   return (
-    <div className="coach-bubble">
-      <CoachAvatar />
+    <div className={`coach-bubble ${thinking ? 'is-thinking' : ''}`}>
+      <div className="coach-av-wrap">
+        <CoachAvatar />
+        {thinking && (
+          <span className="thinking coach-thinking" aria-label="Coach is thinking">
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
+      </div>
       <div className="bubble" key={report ? report.ply + report.uci : text} style={info ? { ['--cls' as string]: info.color } : undefined}>
         {report && info ? (
           <>
             <div className="bubble-head">
-              <span className="bubble-glyph">{info.symbol}</span>
+              <span className="bubble-glyph">
+                <ClassIcon cls={report.cls} />
+              </span>
               <span className="bubble-title">
                 <b>{report.san}</b> is {articleFor(info.label)}
               </span>
